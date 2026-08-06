@@ -1,0 +1,1107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent Research Studio | Autonomous Report Generator</title>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Marked.js for Markdown Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --bg-card: rgba(18, 24, 38, 0.75);
+            --bg-card-hover: rgba(26, 35, 54, 0.85);
+            --bg-input: #121929;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-focus: #6366f1;
+            
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            
+            --accent-primary: #6366f1;
+            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --accent-success: #10b981;
+            --accent-warning: #f59e0b;
+            --accent-error: #ef4444;
+            --accent-info: #06b6d4;
+            
+            --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.25);
+            --radius-lg: 16px;
+            --radius-md: 10px;
+            --radius-sm: 6px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* --- Header --- */
+        header {
+            background: rgba(9, 13, 22, 0.8);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--accent-gradient);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .brand-text h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-text p {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .header-badges {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-success);
+            box-shadow: 0 0 8px var(--accent-success);
+        }
+
+        .badge-dot.pulse {
+            animation: pulse-dot 1.5s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; transform: scale(1.2); }
+            100% { opacity: 0.4; }
+        }
+
+        .header-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13px;
+            transition: color 0.2s;
+            margin-left: 16px;
+        }
+
+        .header-links a:hover {
+            color: var(--accent-primary);
+        }
+
+        /* --- Main Layout --- */
+        main {
+            flex: 1;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 24px 32px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* --- Search & Setup Section --- */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            transition: border-color 0.2s;
+        }
+
+        .card:hover {
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .search-box {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .input-group {
+            flex: 1;
+            position: relative;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 14px 20px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            color: var(--text-main);
+            font-size: 15px;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .input-group input:focus {
+            border-color: var(--border-focus);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.2);
+        }
+
+        .btn {
+            padding: 14px 24px;
+            border-radius: var(--radius-md);
+            font-size: 14px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent-gradient);
+            color: #ffffff;
+            box-shadow: var(--shadow-glow);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.5);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
+        }
+
+        .btn-warning:hover {
+            box-shadow: 0 0 25px rgba(245, 158, 11, 0.5);
+        }
+
+        .quick-topics {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .quick-topics span {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-right: 4px;
+        }
+
+        .topic-pill {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .topic-pill:hover {
+            background: rgba(99, 102, 241, 0.15);
+            border-color: var(--accent-primary);
+            color: var(--text-main);
+        }
+
+        /* --- Pipeline Workflow Tracker --- */
+        .pipeline-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            padding: 10px 0;
+        }
+
+        .pipeline-progress-bar {
+            position: absolute;
+            top: 50%;
+            left: 5%;
+            right: 5%;
+            height: 3px;
+            background: var(--border-color);
+            z-index: 1;
+            transform: translateY(-50%);
+        }
+
+        .pipeline-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--accent-gradient);
+            transition: width 0.4s ease;
+        }
+
+        .pipeline-step {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            width: 100px;
+        }
+
+        .step-node {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--bg-dark);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: var(--text-dim);
+            transition: all 0.3s;
+        }
+
+        .pipeline-step.active .step-node {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
+            background: rgba(99, 102, 241, 0.1);
+            animation: pulse-node 1.5s infinite;
+        }
+
+        .pipeline-step.completed .step-node {
+            border-color: var(--accent-success);
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-success);
+        }
+
+        .pipeline-step.awaiting .step-node {
+            border-color: var(--accent-warning);
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-warning);
+            animation: pulse-warning 1.5s infinite;
+        }
+
+        @keyframes pulse-node {
+            0% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.8); }
+            100% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.3); }
+        }
+
+        @keyframes pulse-warning {
+            0% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+            50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.8); }
+            100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+        }
+
+        .step-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-dim);
+            text-align: center;
+        }
+
+        .pipeline-step.active .step-label {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        /* --- Human-in-the-Loop Review Banner --- */
+        .review-banner {
+            display: none;
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.06) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: var(--radius-lg);
+            padding: 20px 24px;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .review-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .review-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            color: var(--accent-warning);
+        }
+
+        .review-textarea {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-input);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: var(--radius-md);
+            color: var(--text-main);
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 80px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+
+        .review-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        /* --- Report Container & Details --- */
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .workspace-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .report-card {
+            display: flex;
+            flex-direction: column;
+            min-height: 500px;
+        }
+
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .report-title-area h2 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .report-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tab-btn {
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-main);
+            border-color: var(--border-color);
+        }
+
+        .report-body {
+            flex: 1;
+            font-size: 15px;
+            line-height: 1.7;
+            color: #cbd5e1;
+        }
+
+        /* Markdown Styling inside report-body */
+        .report-body h1, .report-body h2, .report-body h3 {
+            color: #f8fafc;
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+        }
+
+        .report-body h1 { font-size: 22px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .report-body h2 { font-size: 18px; color: var(--accent-primary); }
+        .report-body h3 { font-size: 15px; }
+
+        .report-body p { margin-bottom: 1em; }
+        
+        .report-body ul, .report-body ol {
+            padding-left: 24px;
+            margin-bottom: 1em;
+        }
+
+        .report-body li { margin-bottom: 6px; }
+
+        .report-body a {
+            color: var(--accent-info);
+            text-decoration: none;
+            background: rgba(6, 182, 212, 0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            word-break: break-all;
+        }
+
+        .report-body a:hover {
+            text-decoration: underline;
+            background: rgba(6, 182, 212, 0.2);
+        }
+
+        .report-body blockquote {
+            border-left: 4px solid var(--accent-primary);
+            padding-left: 16px;
+            color: var(--text-muted);
+            font-style: italic;
+            margin: 1em 0;
+            background: rgba(99, 102, 241, 0.05);
+            padding-top: 8px;
+            padding-bottom: 8px;
+            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+        }
+
+        .report-body code {
+            font-family: 'JetBrains Mono', monospace;
+            background: #1e293b;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #f472b6;
+        }
+
+        .report-body pre code {
+            display: block;
+            padding: 16px;
+            overflow-x: auto;
+            color: #e2e8f0;
+            line-height: 1.5;
+        }
+
+        .raw-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            color: var(--text-muted);
+            background: var(--bg-input);
+            padding: 16px;
+            border-radius: var(--radius-md);
+            display: none;
+        }
+
+        /* --- Metadata & Sidebar Details --- */
+        .sidebar-card {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .meta-section h3 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+        }
+
+        .subquery-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            color: var(--text-main);
+            margin-bottom: 6px;
+            margin-right: 6px;
+        }
+
+        .source-item {
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+
+        .source-item:hover {
+            background: rgba(99, 102, 241, 0.08);
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+
+        .source-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-main);
+            margin-bottom: 4px;
+            line-height: 1.3;
+        }
+
+        .source-url {
+            font-size: 11px;
+            color: var(--accent-info);
+            text-decoration: none;
+            word-break: break-all;
+        }
+
+        /* --- Loading Overlay --- */
+        .loading-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 80px 20px;
+            gap: 16px;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(99, 102, 241, 0.1);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* --- Empty State --- */
+        .empty-state {
+            text-align: center;
+            padding: 100px 20px;
+            color: var(--text-dim);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            opacity: 0.6;
+        }
+
+        /* --- Thread Lookup Modal / Bar --- */
+        .lookup-bar {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .lookup-bar input {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-main);
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="brand">
+            <div class="brand-icon">🤖</div>
+            <div class="brand-text">
+                <h1>Multi-Agent Research Studio</h1>
+                <p>LangGraph Agent Orchestration & Human-in-the-Loop</p>
+            </div>
+        </div>
+
+        <div class="header-badges">
+            <div class="badge">
+                <span class="badge-dot pulse" id="providerDot"></span>
+                <span id="providerText">Provider: Groq (LLaMA-3.3-70B)</span>
+            </div>
+            <div class="badge">
+                <span style="color: #a855f7;">⚡</span>
+                <span>LangSmith Tracing</span>
+            </div>
+            <div class="header-links">
+                <a href="/docs" target="_blank">Swagger API</a>
+                <a href="/metrics" target="_blank">Metrics</a>
+                <a href="/health" target="_blank">Health</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Search & Control Card -->
+        <div class="card">
+            <div class="search-box">
+                <div class="input-group">
+                    <input type="text" id="topicInput" placeholder="Enter research topic (e.g. Current state of small modular nuclear reactors)..." autocomplete="off">
+                </div>
+                <button class="btn btn-primary" id="startBtn" onclick="startResearch()">
+                    <span>🚀 Launch Research</span>
+                </button>
+            </div>
+
+            <div class="quick-topics">
+                <span>Try Example Topics:</span>
+                <div class="topic-pill" onclick="setTopic('Current state of small modular nuclear reactors')">⚛️ Nuclear SMRs</div>
+                <div class="topic-pill" onclick="setTopic('Agentic AI orchestration patterns in 2026')">🤖 Agentic AI 2026</div>
+                <div class="topic-pill" onclick="setTopic('Quantum cryptography standards and enterprise security')">🛡️ Quantum Cryptography</div>
+                <div class="topic-pill" onclick="setTopic('Groq LPU vs NVIDIA GPU latency and throughput benchmarks')">⚡ Groq LPU Benchmarks</div>
+            </div>
+
+            <div class="lookup-bar">
+                <input type="text" id="threadIdInput" placeholder="Or enter existing Thread ID to resume/view status...">
+                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 12px;" onclick="loadThread()">Load Thread</button>
+            </div>
+        </div>
+
+        <!-- Multi-Agent Pipeline Tracker -->
+        <div class="card" style="padding: 20px 32px;">
+            <div class="pipeline-container">
+                <div class="pipeline-progress-bar">
+                    <div class="pipeline-progress-fill" id="progressFill"></div>
+                </div>
+
+                <div class="pipeline-step" id="step-researcher">
+                    <div class="step-node">🔍</div>
+                    <div class="step-label">Researcher</div>
+                </div>
+
+                <div class="pipeline-step" id="step-analyst">
+                    <div class="step-node">📊</div>
+                    <div class="step-label">Analyst</div>
+                </div>
+
+                <div class="pipeline-step" id="step-writer">
+                    <div class="step-node">✍️</div>
+                    <div class="step-label">Writer</div>
+                </div>
+
+                <div class="pipeline-step" id="step-review">
+                    <div class="step-node">🧑‍⚖️</div>
+                    <div class="step-label">Human Review</div>
+                </div>
+
+                <div class="pipeline-step" id="step-finalize">
+                    <div class="step-node">🏁</div>
+                    <div class="step-label">Finalize</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Human-in-the-Loop Review Banner -->
+        <div class="review-banner" id="reviewBanner">
+            <div class="review-header">
+                <div class="review-title">
+                    <span style="font-size: 20px;">⚠️</span>
+                    <span>Human Review Required — Inspect Draft & Submit Approval / Revision</span>
+                </div>
+                <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: var(--accent-warning); border-color: rgba(245, 158, 11, 0.4);" id="revisionBadge">Revision 0 of 3</span>
+            </div>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+                The LangGraph agentic workflow is currently <strong>paused in SQLite state storage</strong>. Approve to finalize the report, or request revisions below.
+            </p>
+            <textarea class="review-textarea" id="feedbackInput" placeholder="Optional revision feedback (e.g. 'Add more detail on cost per MWh and supply chain risks')..."></textarea>
+            <div class="review-actions">
+                <button class="btn btn-warning" onclick="submitReview(false)">
+                    <span>🔄 Request Revision</span>
+                </button>
+                <button class="btn btn-success" onclick="submitReview(true)">
+                    <span>✅ Approve & Finalize Report</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Workspace Grid: Report + Metadata Sidebar -->
+        <div class="workspace-grid">
+            <!-- Left: Report Card -->
+            <div class="card report-card">
+                <div class="report-header">
+                    <div class="report-title-area">
+                        <h2 id="reportHeadline">Research Workspace</h2>
+                    </div>
+                    <div class="report-tabs">
+                        <button class="tab-btn active" id="tabRendered" onclick="switchTab('rendered')">Rendered Report</button>
+                        <button class="tab-btn" id="tabRaw" onclick="switchTab('raw')">Raw Markdown</button>
+                    </div>
+                </div>
+
+                <!-- Report Content Display -->
+                <div id="reportDisplay">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔬</div>
+                        <h3>No Active Research Task</h3>
+                        <p style="margin-top: 6px;">Enter a topic above or select a quick example to launch the 5-node agent state machine.</p>
+                    </div>
+                </div>
+                
+                <div class="raw-text" id="rawDisplay"></div>
+            </div>
+
+            <!-- Right Sidebar: Metadata & Sources -->
+            <div class="sidebar-card">
+                <!-- Sub-Queries Card -->
+                <div class="card">
+                    <div class="meta-section">
+                        <h3>Research Sub-Queries</h3>
+                        <div id="subqueriesContainer">
+                            <p style="font-size: 13px; color: var(--text-dim);">No queries generated yet.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sources & Web References -->
+                <div class="card" style="flex: 1;">
+                    <div class="meta-section">
+                        <h3>Cited Sources & Links</h3>
+                        <div id="sourcesContainer">
+                            <p style="font-size: 13px; color: var(--text-dim);">No citations extracted yet.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentThreadId = null;
+        let isProcessing = false;
+
+        function setTopic(text) {
+            document.getElementById('topicInput').value = text;
+        }
+
+        function switchTab(type) {
+            const rendered = document.getElementById('reportDisplay');
+            const raw = document.getElementById('rawDisplay');
+            const tabRendered = document.getElementById('tabRendered');
+            const tabRaw = document.getElementById('tabRaw');
+
+            if (type === 'rendered') {
+                rendered.style.display = 'block';
+                raw.style.display = 'none';
+                tabRendered.classList.add('active');
+                tabRaw.classList.remove('active');
+            } else {
+                rendered.style.display = 'none';
+                raw.style.display = 'block';
+                tabRendered.classList.remove('active');
+                tabRaw.classList.add('active');
+            }
+        }
+
+        function updatePipelineUI(status, awaitingReview, revisionCount) {
+            const steps = {
+                'researcher': document.getElementById('step-researcher'),
+                'analyst': document.getElementById('step-analyst'),
+                'writer': document.getElementById('step-writer'),
+                'review': document.getElementById('step-review'),
+                'finalize': document.getElementById('step-finalize'),
+            };
+
+            const progressFill = document.getElementById('progressFill');
+
+            // Reset classes
+            Object.values(steps).forEach(s => {
+                s.className = 'pipeline-step';
+            });
+
+            if (status === 'started') {
+                steps.researcher.classList.add('active');
+                progressFill.style.width = '10%';
+            } else if (status === 'researched') {
+                steps.researcher.classList.add('completed');
+                steps.analyst.classList.add('active');
+                progressFill.style.width = '30%';
+            } else if (status === 'analyzed') {
+                steps.researcher.classList.add('completed');
+                steps.analyst.classList.add('completed');
+                steps.writer.classList.add('active');
+                progressFill.style.width = '55%';
+            } else if (awaitingReview || status === 'drafted' || status === 'revision_requested') {
+                steps.researcher.classList.add('completed');
+                steps.analyst.classList.add('completed');
+                steps.writer.classList.add('completed');
+                steps.review.classList.add('awaiting');
+                progressFill.style.width = '80%';
+            } else if (status === 'finalized' || status === 'approved') {
+                steps.researcher.classList.add('completed');
+                steps.analyst.classList.add('completed');
+                steps.writer.classList.add('completed');
+                steps.review.classList.add('completed');
+                steps.finalize.classList.add('completed');
+                progressFill.style.width = '100%';
+            }
+        }
+
+        async function startResearch() {
+            const topic = document.getElementById('topicInput').value.trim();
+            if (!topic) {
+                alert('Please enter a research topic.');
+                return;
+            }
+
+            isProcessing = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('reviewBanner').style.display = 'none';
+
+            // Loading View
+            document.getElementById('reportDisplay').innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Executing LangGraph Agents (Researcher → Analyst → Writer)...</p>
+                    <p style="font-size: 12px; color: var(--text-dim);">Running web search via Tavily & low-latency inference via Groq LPU...</p>
+                </div>
+            `;
+
+            updatePipelineUI('started', false, 0);
+
+            try {
+                const response = await fetch('/research', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ topic: topic })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentThreadId = data.thread_id;
+                document.getElementById('threadIdInput').value = currentThreadId;
+
+                renderResponse(data);
+            } catch (err) {
+                document.getElementById('reportDisplay').innerHTML = `
+                    <div class="empty-state" style="color: var(--accent-error);">
+                        <div class="empty-state-icon">⚠️</div>
+                        <h3>Research Request Failed</h3>
+                        <p>${err.message}</p>
+                    </div>
+                `;
+            } finally {
+                isProcessing = false;
+                document.getElementById('startBtn').disabled = false;
+            }
+        }
+
+        async function loadThread() {
+            const threadId = document.getElementById('threadIdInput').value.trim();
+            if (!threadId) {
+                alert('Please enter a Thread ID.');
+                return;
+            }
+
+            currentThreadId = threadId;
+            document.getElementById('reportDisplay').innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>Fetching checkpoint state from SQLite...</p>
+                </div>
+            `;
+
+            try {
+                const response = await fetch(`/research/${threadId}`);
+                if (!response.ok) {
+                    throw new Error(`Thread not found or error status: ${response.status}`);
+                }
+                const data = await response.json();
+                renderResponse(data);
+            } catch (err) {
+                alert(`Error loading thread: ${err.message}`);
+            }
+        }
+
+        async function submitReview(approved) {
+            if (!currentThreadId) return;
+
+            const feedback = document.getElementById('feedbackInput').value.trim();
+            document.getElementById('reviewBanner').style.display = 'none';
+
+            document.getElementById('reportDisplay').innerHTML = `
+                <div class="loading-state">
+                    <div class="spinner"></div>
+                    <p>${approved ? 'Finalizing report...' : 'Revising report draft based on feedback...'}</p>
+                </div>
+            `;
+
+            try {
+                const response = await fetch(`/research/${currentThreadId}/review`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ approved: approved, feedback: feedback })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Review submit failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+                renderResponse(data);
+            } catch (err) {
+                alert(`Error submitting review: ${err.message}`);
+            }
+        }
+
+        function renderResponse(data) {
+            const content = data.final_report || data.draft || 'No content available.';
+            document.getElementById('reportHeadline').textContent = `Report: ${data.thread_id.substring(0, 8)}... (${data.status})`;
+            
+            // Render Markdown
+            document.getElementById('reportDisplay').innerHTML = `<div class="report-body">${marked.parse(content)}</div>`;
+            document.getElementById('rawDisplay').textContent = content;
+
+            // Render Sub-Queries
+            const subqueriesContainer = document.getElementById('subqueriesContainer');
+            if (data.sub_queries && data.sub_queries.length > 0) {
+                subqueriesContainer.innerHTML = data.sub_queries.map(q => 
+                    `<div class="subquery-tag">🔍 ${escapeHtml(q)}</div>`
+                ).join('');
+            } else {
+                subqueriesContainer.innerHTML = `<p style="font-size: 13px; color: var(--text-dim);">No sub-queries generated.</p>`;
+            }
+
+            // Render Sources
+            const sourcesContainer = document.getElementById('sourcesContainer');
+            if (data.sources && data.sources.length > 0) {
+                sourcesContainer.innerHTML = data.sources.map(s => `
+                    <div class="source-item">
+                        <div class="source-title">${escapeHtml(s.title || 'Web Reference')}</div>
+                        <a class="source-url" href="${s.url}" target="_blank" rel="noopener">${escapeHtml(s.url)}</a>
+                    </div>
+                `).join('');
+            } else {
+                sourcesContainer.innerHTML = `<p style="font-size: 13px; color: var(--text-dim);">No citations extracted.</p>`;
+            }
+
+            // Handle HITL Review Banner
+            const reviewBanner = document.getElementById('reviewBanner');
+            if (data.awaiting_review) {
+                reviewBanner.style.display = 'block';
+                document.getElementById('revisionBadge').textContent = `Revision ${data.revision_count} of 3`;
+                document.getElementById('feedbackInput').value = '';
+            } else {
+                reviewBanner.style.display = 'none';
+            }
+
+            updatePipelineUI(data.status, data.awaiting_review, data.revision_count);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
+
+        // Fetch System Health/Ready Status on Load
+        async function fetchSystemStatus() {
+            try {
+                const res = await fetch('/ready');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('providerText').textContent = `Provider: ${data.model_provider.toUpperCase()}`;
+                }
+            } catch (e) {
+                console.log('Server status fetch info:', e);
+            }
+        }
+
+        fetchSystemStatus();
+    </script>
+</body>
+</html>

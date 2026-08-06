@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.example
+logs/
+.git/
+.gitignore
+.python-version
+README.md
+tests/
+.pytest_cache/
+*.md

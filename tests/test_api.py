@@ -1,0 +1,155 @@
+"""Tests for the FastAPI endpoints -- full request/response lifecycle."""
+
+
+def test_health(mocked_client):
+    r = mocked_client.get("/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_ready(mocked_client):
+    r = mocked_client.get("/ready")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ready"
+    assert r.json()["max_revisions"] == 3
+
+
+def test_start_research_pauses_for_review(mocked_client):
+    r = mocked_client.post("/research", json={"topic": "small modular reactors"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["awaiting_review"] is True
+    assert body["draft"] == "draft v1"
+    assert body["revision_count"] == 0
+    assert body["sub_queries"] == ["q1", "q2"]
+    assert body["thread_id"]
+
+
+def test_start_research_rejects_empty_topic(mocked_client):
+    r = mocked_client.post("/research", json={"topic": ""})
+    assert r.status_code == 422  # pydantic min_length=1 validation
+
+
+def test_get_research_status(mocked_client):
+    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    r = mocked_client.get(f"/research/{started['thread_id']}")
+    assert r.status_code == 200
+    assert r.json()["draft"] == started["draft"]
+    assert r.json()["sub_queries"] == ["q1", "q2"]
+
+
+def test_get_research_unknown_thread_404s(mocked_client):
+    r = mocked_client.get("/research/does-not-exist")
+    assert r.status_code == 404
+
+
+def test_review_revision_increments_count_and_produces_new_draft(mocked_client):
+    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    thread_id = started["thread_id"]
+
+    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "add more detail"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["draft"] == "draft v2"
+    assert body["revision_count"] == 1
+    assert body["awaiting_review"] is True
+    assert body["status"] != "finalized"
+
+
+def test_review_approval_finalizes(mocked_client):
+    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    thread_id = started["thread_id"]
+
+    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "finalized"
+    assert body["final_report"] == "draft v1"
+    assert body["awaiting_review"] is False
+
+
+def test_review_on_already_finalized_thread_is_rejected(mocked_client):
+    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    thread_id = started["thread_id"]
+    mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})  # finalize it
+
+    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    assert r.status_code == 400  # not awaiting review anymore
+
+
+def test_revision_cap_forces_finalization(mocked_client):
+    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    thread_id = started["thread_id"]
+
+    # MAX_REVISIONS = 3 -- request revisions 4 times; the 4th must force-finalize.
+    for _ in range(3):
+        r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "more"})
+        assert r.json()["awaiting_review"] is True
+
+    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "more"})
+    body = r.json()
+    assert body["status"] == "finalized"
+    assert body["awaiting_review"] is False
+    assert "maximum revision limit" in body["final_report"]
+
+
+def test_metrics_reflect_activity(mocked_client):
+    mocked_client.post("/research", json={"topic": "test"})
+    r = mocked_client.get("/metrics")
+    body = r.json()
+    assert body["reports_started"] >= 1
+    assert body["request_count"] >= 1
+
+
+def test_research_failure_returns_500_not_crash(failing_researcher_client):
+    r = failing_researcher_client.post("/research", json={"topic": "test"})
+    assert r.status_code == 500
+    assert "detail" in r.json()
+
+
+def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "API_KEY", "secret123")
+    r = mocked_client.post("/research", json={"topic": "test"})
+    assert r.status_code == 401
+
+
+def test_auth_accepts_correct_key(mocked_client, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "API_KEY", "secret123")
+    r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "secret123"})
+    assert r.status_code == 200
+
+
+def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents):
+    """Verify thread state created in one app instance is readable from a fresh app instance sharing the same SQLite DB file."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from app import config
+
+    db_file = str(tmp_path / "test_checkpoints.sqlite")
+    config.DB_PATH = db_file
+
+    with patch("app.graph.researcher_node", fake_agents["researcher"]), \
+         patch("app.graph.analyst_node", fake_agents["analyst"]), \
+         patch("app.graph.writer_node", fake_agents["writer"]):
+        from app.main import app
+
+        # App Instance 1: start research thread
+        with TestClient(app) as client1:
+            res1 = client1.post("/research", json={"topic": "persistent topic"})
+            thread_id = res1.json()["thread_id"]
+
+        # App Instance 2: verify thread is still retrieved from disk
+        with TestClient(app) as client2:
+            res2 = client2.get(f"/research/{thread_id}")
+            assert res2.status_code == 200
+            assert res2.json()["draft"] == "draft v1"
+            assert res2.json()["awaiting_review"] is True
+
+            # Resume and finalize in instance 2
+            rev_res = client2.post(f"/research/{thread_id}/review", json={"approved": True})
+            assert rev_res.status_code == 200
+            assert rev_res.json()["status"] == "finalized"
