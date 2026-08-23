@@ -101,7 +101,7 @@ Returns `status: "finalized"` and the `final_report`.
 ```bash
 uv run pytest tests/ -v
 ```
-20 tests, all fully mocked (no real API calls) -- covers the full HTTP
+Fully mocked, no real API calls -- covers the full HTTP
 lifecycle (start/status/revise/approve), the revision cap, auth, error
 handling, and each agent's branching logic (JSON-decomposition fallback,
 first-draft vs. revision-pass prompting) in isolation from the graph.
@@ -136,12 +136,14 @@ gcloud run deploy multi-agent-research \
 
 ## Known limitations (say these before you're asked)
 
-- **`MemorySaver` is in-process and per-instance.** A paused (awaiting-review)
-  thread does not survive a restart, and does not work correctly if Cloud
-  Run scales to more than one instance -- each instance has its own memory,
-  so a review call could land on an instance that never saw the original
-  request. Fine for a single-instance demo; the documented next step is a
-  persisted checkpointer (LangGraph supports Postgres/SQLite backends).
+- **SQLite checkpointing is per-instance, not shared.** A paused
+  (awaiting-review) thread *does* survive a local process restart -- that's the
+  point of the SQLite checkpointer, and it's the one thing here worth seeing.
+  What it does not survive is a Cloud Run instance recycle, and it is not
+  shared across instances: `DB_PATH` defaults to a relative path on an
+  ephemeral container filesystem, so each instance opens its own file and that
+  file dies with the instance. Fine for a single-instance demo; the documented
+  next step is Postgres.
 - **No timeout eviction for abandoned threads.** `REVIEW_TIMEOUT_MINUTES`
   is defined in config but not yet enforced -- a report that's never
   reviewed just sits in memory indefinitely. A real system would need a
@@ -181,7 +183,7 @@ app/
   graph.py             # LangGraph state machine, human-in-the-loop, revision cap
   metrics.py             # lightweight in-process metrics
   main.py                   # FastAPI endpoints, auth, rate limiting, structured logging
-tests/                        # 20 tests, fully mocked
+tests/                        # fully mocked, no real API calls
 .github/workflows/ci.yml         # lint + test on every push
 Dockerfile
 ```
