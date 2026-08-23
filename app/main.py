@@ -52,6 +52,8 @@ logger.addHandler(logging.StreamHandler())
 # MemorySaver if config.DB_PATH == ":memory:".
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    config.validate_llm_config()
+    config.validate_search_config()
     if config.DB_PATH == ":memory:":
         app.state.graph = build_graph().compile(checkpointer=MemorySaver())
         yield
@@ -83,7 +85,7 @@ def require_api_key(x_api_key: str = Header(default="")) -> None:
 
 
 class ResearchRequest(BaseModel):
-    topic: str = Field(..., min_length=1, examples=["The current state of small modular nuclear reactors"])
+    topic: str = Field(..., min_length=1, max_length=500, examples=["The current state of small modular nuclear reactors"])
 
 
 class ReviewRequest(BaseModel):
@@ -94,11 +96,12 @@ class ReviewRequest(BaseModel):
 class ResearchResponse(BaseModel):
     thread_id: str
     status: str
+    topic: str = ""
     draft: str = ""
     final_report: str = ""
     revision_count: int
-    sub_queries: list[str] = []
-    sources: list = []
+    sub_queries: list[str] = Field(default_factory=list)
+    sources: list = Field(default_factory=list)
     awaiting_review: bool
 
 
@@ -106,6 +109,7 @@ def _state_to_response(thread_id: str, state: dict, interrupted: bool) -> Resear
     return ResearchResponse(
         thread_id=thread_id,
         status=state.get("status", "unknown"),
+        topic=state.get("topic", ""),
         draft=state.get("draft", ""),
         final_report=state.get("final_report", ""),
         revision_count=state.get("revision_count", 0),
