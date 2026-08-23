@@ -18,6 +18,7 @@ class SearchResult:
 
 
 def _get_search_tool() -> TavilySearch:
+    config.validate_search_config()
     return TavilySearch(
         max_results=config.MAX_SEARCH_RESULTS,
         search_depth=config.SEARCH_DEPTH,

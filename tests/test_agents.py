@@ -2,6 +2,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.agents import researcher_node, writer_node
 from app.tools import SearchResult
 
@@ -75,3 +77,13 @@ def test_writer_revision_pass_incorporates_feedback():
     human_message = call_args[1][1]
     assert "make it shorter" in human_message
     assert "old draft" in human_message
+
+
+def test_researcher_surfaces_missing_llm_config_as_runtime_error(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "MODEL_PROVIDER", "groq")
+    monkeypatch.setattr(config, "GROQ_API_KEY", "")
+
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY is not set"):
+        researcher_node({"topic": "fallback topic"})

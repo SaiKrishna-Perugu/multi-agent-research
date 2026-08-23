@@ -1,6 +1,8 @@
 """Tests for the web search tool wrapper -- specifically per-query error isolation."""
 from unittest.mock import patch
 
+import pytest
+
 from app.tools import SearchResult, run_multi_search, run_search
 
 
@@ -35,3 +37,12 @@ def test_run_search_returns_structured_results():
     assert result.query == "test query"
     assert result.answer == "quick summary"
     assert result.results[0]["title"] == "T"
+
+
+def test_run_search_validates_tavily_config_at_runtime(monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "TAVILY_API_KEY", "")
+
+    with pytest.raises(RuntimeError, match="TAVILY_API_KEY is not set"):
+        run_search("test query")

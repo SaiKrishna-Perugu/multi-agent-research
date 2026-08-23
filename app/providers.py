@@ -17,6 +17,8 @@ def get_llm(temperature: float = 0.0, model_override: str = ""):
     default (e.g. config.RESEARCHER_MODEL_OVERRIDE). Empty string means
     "use the provider's configured default chat model."
     """
+    config.validate_llm_config()
+
     if config.MODEL_PROVIDER == "vertexai":
         from langchain_google_vertexai import ChatVertexAI
         return ChatVertexAI(

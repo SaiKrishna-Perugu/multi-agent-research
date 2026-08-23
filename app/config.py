@@ -43,7 +43,7 @@ def _get_secret(env_name: str, default: str = "") -> str:
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = _get_secret("GROQ_API_KEY")
-GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
@@ -87,16 +87,19 @@ REVIEW_TIMEOUT_MINUTES = int(os.getenv("REVIEW_TIMEOUT_MINUTES", "60"))
 # --- Database / Persistence --------------------------------------------------
 DB_PATH = os.getenv("DB_PATH", "checkpoints.sqlite")
 
-# --- Validation ----------------------------------------------------------------
-if MODEL_PROVIDER == "groq" and not GROQ_API_KEY:
-    raise RuntimeError(
-        "GROQ_API_KEY is not set. Copy .env.example to .env and add your key, "
-        "or set MODEL_PROVIDER=vertexai to use Vertex AI instead."
-    )
-if MODEL_PROVIDER == "vertexai" and not GCP_PROJECT_ID:
-    raise RuntimeError("MODEL_PROVIDER=vertexai requires GCP_PROJECT_ID to be set in .env.")
-if not TAVILY_API_KEY:
-    raise RuntimeError(
-        "TAVILY_API_KEY is not set. Get a free key at https://app.tavily.com "
-        "(no credit card required) and add it to .env."
-    )
+def validate_llm_config() -> None:
+    if MODEL_PROVIDER == "groq" and not GROQ_API_KEY:
+        raise RuntimeError(
+            "GROQ_API_KEY is not set. Copy .env.example to .env and add your key, "
+            "or set MODEL_PROVIDER=vertexai to use Vertex AI instead."
+        )
+    if MODEL_PROVIDER == "vertexai" and not GCP_PROJECT_ID:
+        raise RuntimeError("MODEL_PROVIDER=vertexai requires GCP_PROJECT_ID to be set in .env.")
+
+
+def validate_search_config() -> None:
+    if not TAVILY_API_KEY:
+        raise RuntimeError(
+            "TAVILY_API_KEY is not set. Get a free key at https://app.tavily.com "
+            "(no credit card required) and add it to .env."
+        )
