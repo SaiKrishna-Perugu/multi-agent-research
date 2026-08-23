@@ -3,6 +3,7 @@ Web search tool for the researcher agent, via Tavily -- a search API built
 specifically for LLM agents (returns clean, summarized results rather than
 raw HTML/SERP scraping).
 """
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from langchain_tavily import TavilySearch
@@ -45,14 +46,27 @@ def run_search(query: str) -> SearchResult:
 
 
 def run_multi_search(queries: list) -> list:
-    """Run several search queries (one per sub-topic) and return all results.
-    Errors on an individual query are isolated -- one failed search doesn't
-    abort the whole research pass, matching the same per-item error
+    """Run several search queries (one per sub-topic) concurrently and return
+    all results, in the same order as `queries`.
+
+    The searches are independent network calls, so running them serially made
+    the researcher node the slowest part of a report by a wide margin. A thread
+    pool is the right tool here: `TavilySearch.invoke` is blocking I/O, so the
+    GIL is released while each request is in flight.
+
+    Errors on an individual query are still isolated -- one failed search
+    doesn't abort the whole research pass, matching the same per-item error
     isolation philosophy used in rag-capstone's ingestion pipeline."""
-    all_results = []
-    for query in queries:
+    if not queries:
+        return []
+
+    def _safe(query: str) -> SearchResult:
         try:
-            all_results.append(run_search(query))
+            return run_search(query)
         except Exception as exc:
-            all_results.append(SearchResult(query=query, results=[], answer=f"[search failed: {exc}]"))
-    return all_results
+            return SearchResult(query=query, results=[], answer=f"[search failed: {exc}]")
+
+    # map() preserves input order, which callers rely on when pairing a result
+    # back to the sub-query that produced it.
+    with ThreadPoolExecutor(max_workers=min(len(queries), 8)) as pool:
+        return list(pool.map(_safe, queries))
