@@ -870,6 +870,133 @@
     <script>
         let currentThreadId = null;
         let isProcessing = false;
+        let pollTimer = null;
+        let elapsedTimer = null;
+        let elapsedStart = 0;
+
+        // POST returns 202 immediately and the graph runs server-side, so the
+        // client drives the tracker from real per-node status instead of guessing.
+        const STAGE_COPY = {
+            started: 'Researcher is decomposing the topic and searching the web...',
+            researched: 'Analyst is extracting themes, insights and gaps...',
+            analyzed: 'Writer is drafting the report...',
+            revision_requested: 'Writer is revising against your feedback...',
+            approved: 'Finalizing the report...',
+            drafted: 'Draft ready.',
+            finalized: 'Done.',
+        };
+
+
+        function setBusy(busy) {
+            isProcessing = busy;
+            document.getElementById('startBtn').disabled = busy;
+        }
+
+        function stopElapsed() {
+            if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null; }
+        }
+
+        function stopPolling() {
+            if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+            stopElapsed();
+        }
+
+        function elapsedText() {
+            const s = Math.floor((Date.now() - elapsedStart) / 1000);
+            const mm = Math.floor(s / 60);
+            const ss = String(s % 60).padStart(2, '0');
+            return `Elapsed ${mm}:${ss}  -  a full report usually takes 45-70 seconds`;
+        }
+
+        function startElapsed() {
+            stopElapsed();
+            elapsedStart = Date.now();
+            elapsedTimer = setInterval(() => {
+                const el = document.getElementById('elapsedLine');
+                if (el) el.textContent = elapsedText();
+            }, 1000);
+        }
+
+        // Builds the working view once, then only swaps the stage line so the
+        // elapsed counter is not reset on every poll.
+        function showWorking(status) {
+            let line = document.getElementById('workingLine');
+            if (!line) {
+                const wrap = document.createElement('div');
+                wrap.className = 'loading-state';
+                const sp = document.createElement('div');
+                sp.className = 'spinner';
+                line = document.createElement('p');
+                line.id = 'workingLine';
+                const sub = document.createElement('p');
+                sub.id = 'elapsedLine';
+                sub.style.fontSize = '12px';
+                sub.style.color = 'var(--text-dim)';
+                sub.textContent = elapsedText();
+                wrap.append(sp, line, sub);
+                document.getElementById('reportDisplay').replaceChildren(wrap);
+                startElapsed();
+            }
+            line.textContent = STAGE_COPY[status] || 'Working...';
+        }
+
+        function showError(message) {
+            stopPolling();
+            switchTab('rendered');
+            const box = document.createElement('div');
+            box.className = 'empty-state';
+            box.style.color = 'var(--accent-error)';
+            const icon = document.createElement('div');
+            icon.className = 'empty-state-icon';
+            icon.textContent = '\u26a0\ufe0f';
+            const h = document.createElement('h3');
+            h.textContent = 'Request Failed';
+            const msg = document.createElement('p');
+            msg.textContent = message;
+            box.append(icon, h, msg);
+            document.getElementById('reportDisplay').replaceChildren(box);
+        }
+
+        function resetSidebar() {
+            const q = document.getElementById('subqueriesContainer');
+            const c = document.getElementById('sourcesContainer');
+            q.replaceChildren();
+            c.replaceChildren();
+            const qp = document.createElement('p');
+            qp.style.fontSize = '13px';
+            qp.style.color = 'var(--text-dim)';
+            qp.textContent = 'No queries generated yet.';
+            const cp = qp.cloneNode(true);
+            cp.textContent = 'No citations extracted yet.';
+            q.append(qp);
+            c.append(cp);
+            document.getElementById('rawDisplay').textContent = '';
+        }
+
+        // Poll until the server says the background run has stopped.
+        async function pollThread(threadId) {
+            try {
+                const r = await fetch(`/research/${encodeURIComponent(threadId)}`);
+                if (!r.ok) throw new Error(await errorMessage(r));
+                const data = await r.json();
+
+                if (data.error) { setBusy(false); showError(data.error); return; }
+
+                updatePipelineUI(data.status, data.awaiting_review, data.revision_count, data.running);
+
+                if (data.running) {
+                    showWorking(data.status);
+                    pollTimer = setTimeout(() => pollThread(threadId), 1500);
+                    return;
+                }
+                stopPolling();
+                setBusy(false);
+                renderResponse(data);
+            } catch (err) {
+                setBusy(false);
+                showError(err.message);
+            }
+        }
 
         function setTopic(text) {
             document.getElementById('topicInput').value = text;
@@ -894,7 +1021,7 @@
             }
         }
 
-        function updatePipelineUI(status, awaitingReview, revisionCount) {
+        function updatePipelineUI(status, awaitingReview, revisionCount, running) {
             const steps = {
                 'researcher': document.getElementById('step-researcher'),
                 'analyst': document.getElementById('step-analyst'),
@@ -902,39 +1029,42 @@
                 'review': document.getElementById('step-review'),
                 'finalize': document.getElementById('step-finalize'),
             };
-
             const progressFill = document.getElementById('progressFill');
+            const done = (...names) => names.forEach(n => steps[n].classList.add('completed'));
 
-            // Reset classes
-            Object.values(steps).forEach(s => {
-                s.className = 'pipeline-step';
-            });
+            Object.values(steps).forEach(s => { s.className = 'pipeline-step'; });
 
             if (status === 'started') {
                 steps.researcher.classList.add('active');
-                progressFill.style.width = '10%';
+                progressFill.style.width = '15%';
             } else if (status === 'researched') {
-                steps.researcher.classList.add('completed');
+                done('researcher');
                 steps.analyst.classList.add('active');
-                progressFill.style.width = '30%';
+                progressFill.style.width = '40%';
             } else if (status === 'analyzed') {
-                steps.researcher.classList.add('completed');
-                steps.analyst.classList.add('completed');
+                done('researcher', 'analyst');
                 steps.writer.classList.add('active');
-                progressFill.style.width = '55%';
+                progressFill.style.width = '65%';
+            } else if (running && (status === 'revision_requested' || status === 'drafted')) {
+                // A revision is in flight: the writer is working again.
+                done('researcher', 'analyst');
+                steps.writer.classList.add('active');
+                progressFill.style.width = '65%';
+            } else if (running && status === 'approved') {
+                done('researcher', 'analyst', 'writer', 'review');
+                steps.finalize.classList.add('active');
+                progressFill.style.width = '92%';
             } else if (awaitingReview || status === 'drafted' || status === 'revision_requested') {
-                steps.researcher.classList.add('completed');
-                steps.analyst.classList.add('completed');
-                steps.writer.classList.add('completed');
+                done('researcher', 'analyst', 'writer');
                 steps.review.classList.add('awaiting');
                 progressFill.style.width = '80%';
             } else if (status === 'finalized' || status === 'approved') {
-                steps.researcher.classList.add('completed');
-                steps.analyst.classList.add('completed');
-                steps.writer.classList.add('completed');
-                steps.review.classList.add('completed');
-                steps.finalize.classList.add('completed');
+                done('researcher', 'analyst', 'writer', 'review', 'finalize');
                 progressFill.style.width = '100%';
+            } else {
+                // Unknown status: reset rather than leaving a stale fill behind.
+                progressFill.style.width = '0%';
+                console.warn('Unknown pipeline status:', status);
             }
         }
 
@@ -944,22 +1074,15 @@
                 alert('Please enter a research topic.');
                 return;
             }
+            if (isProcessing) return;
 
             switchTab('rendered');
-            isProcessing = true;
-            document.getElementById('startBtn').disabled = true;
+            setBusy(true);
             document.getElementById('reviewBanner').style.display = 'none';
-
-            // Loading View
-            document.getElementById('reportDisplay').innerHTML = `
-                <div class="loading-state">
-                    <div class="spinner"></div>
-                    <p>Executing LangGraph Agents (Researcher → Analyst → Writer)...</p>
-                    <p style="font-size: 12px; color: var(--text-dim);">Running web search via Tavily & low-latency inference via Groq LPU...</p>
-                </div>
-            `;
-
-            updatePipelineUI('started', false, 0);
+            resetSidebar();
+            updatePipelineUI('started', false, 0, true);
+            stopPolling();
+            showWorking('started');
 
             try {
                 const response = await fetch('/research', {
@@ -967,32 +1090,15 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ topic: topic })
                 });
-
-                if (!response.ok) {
-                    throw new Error(await errorMessage(response));
-                }
+                if (!response.ok) throw new Error(await errorMessage(response));
 
                 const data = await response.json();
                 currentThreadId = data.thread_id;
                 document.getElementById('threadIdInput').value = currentThreadId;
-
-                renderResponse(data);
+                pollThread(currentThreadId);
             } catch (err) {
-                const box = document.createElement('div');
-                box.className = 'empty-state';
-                box.style.color = 'var(--accent-error)';
-                const icon = document.createElement('div');
-                icon.className = 'empty-state-icon';
-                icon.textContent = '⚠️';
-                const h = document.createElement('h3');
-                h.textContent = 'Research Request Failed';
-                const msg = document.createElement('p');
-                msg.textContent = err.message;
-                box.append(icon, h, msg);
-                document.getElementById('reportDisplay').replaceChildren(box);
-            } finally {
-                isProcessing = false;
-                document.getElementById('startBtn').disabled = false;
+                setBusy(false);
+                showError(err.message);
             }
         }
 
@@ -1018,25 +1124,29 @@
                     throw new Error(await errorMessage(response));
                 }
                 const data = await response.json();
-                renderResponse(data);
+                currentThreadId = threadId;
+                if (data.running) {
+                    setBusy(true);
+                    stopPolling();
+                    showWorking(data.status);
+                    pollThread(threadId);
+                } else {
+                    renderResponse(data);
+                }
             } catch (err) {
-                alert(`Error loading thread: ${err.message}`);
+                showError(err.message);
             }
         }
 
         async function submitReview(approved) {
-            if (!currentThreadId) return;
+            if (!currentThreadId || isProcessing) return;
 
-            switchTab('rendered');
             const feedback = document.getElementById('feedbackInput').value.trim();
+            switchTab('rendered');
+            setBusy(true);
             document.getElementById('reviewBanner').style.display = 'none';
-
-            document.getElementById('reportDisplay').innerHTML = `
-                <div class="loading-state">
-                    <div class="spinner"></div>
-                    <p>${approved ? 'Finalizing report...' : 'Revising report draft based on feedback...'}</p>
-                </div>
-            `;
+            stopPolling();
+            showWorking(approved ? 'approved' : 'revision_requested');
 
             try {
                 const response = await fetch(`/research/${encodeURIComponent(currentThreadId)}/review`, {
@@ -1044,15 +1154,11 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ approved: approved, feedback: feedback })
                 });
-
-                if (!response.ok) {
-                    throw new Error(await errorMessage(response));
-                }
-
-                const data = await response.json();
-                renderResponse(data);
+                if (!response.ok) throw new Error(await errorMessage(response));
+                pollThread(currentThreadId);
             } catch (err) {
-                alert(`Error submitting review: ${err.message}`);
+                setBusy(false);
+                showError(err.message);
             }
         }
 
@@ -1122,7 +1228,7 @@
                 reviewBanner.style.display = 'none';
             }
 
-            updatePipelineUI(data.status, data.awaiting_review, data.revision_count);
+            updatePipelineUI(data.status, data.awaiting_review, data.revision_count, false);
         }
 
         // FastAPI `detail` is a string for HTTPException but a list of dicts for 422.
