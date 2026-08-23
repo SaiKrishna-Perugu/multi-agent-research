@@ -14,12 +14,13 @@ Run:
 import asyncio
 import json
 import logging
+import threading
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -93,10 +94,65 @@ class ReviewRequest(BaseModel):
     feedback: str = ""
 
 
+# --- Background job tracking ---------------------------------------------------
+# The graph runs in a background task so POST can return a thread_id immediately
+# and the client can poll for real per-node progress. A background exception has
+# no HTTP response waiting to carry it, so it lands here instead.
+#
+# In-process and lost on restart -- same tradeoff as metrics.py. The checkpoint
+# itself is durable in SQLite; only the "is it running / did it blow up" flag is
+# not. A restart mid-run leaves a thread paused at its last completed node,
+# which GET reports honestly as not-running.
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def _job_start(thread_id: str) -> None:
+    with _jobs_lock:
+        _jobs[thread_id] = {"running": True, "error": ""}
+
+
+def _job_finish(thread_id: str, error: str = "") -> None:
+    with _jobs_lock:
+        _jobs[thread_id] = {"running": False, "error": error}
+
+
+def _job_state(thread_id: str) -> dict:
+    with _jobs_lock:
+        return dict(_jobs.get(thread_id, {"running": False, "error": ""}))
+
+
+def _run_graph(graph, thread_id: str, payload, topic: str = "") -> None:
+    """Execute one graph run to its next stop. Runs in a worker thread after the
+    response has been sent, so it must never raise -- failures go to _jobs."""
+    start = time.perf_counter()
+    thread_config = {"configurable": {"thread_id": thread_id}}
+    try:
+        result = graph.invoke(payload, config=thread_config)
+    except Exception as exc:
+        metrics.record_request((time.perf_counter() - start) * 1000, error=True)
+        logger.error(json.dumps({"event": "error", "thread_id": thread_id, "error": str(exc)}))
+        _job_finish(thread_id, "Report generation failed. Check server logs.")
+        return
+
+    latency_ms = (time.perf_counter() - start) * 1000
+    metrics.record_request(latency_ms)
+    if result.get("status") == "finalized":
+        metrics.record_report_finalized()
+    logger.info(json.dumps({
+        "event": "graph_run_complete", "thread_id": thread_id, "topic": topic,
+        "status": result.get("status"), "revision_count": result.get("revision_count"),
+        "latency_ms": round(latency_ms),
+    }))
+    _job_finish(thread_id)
+
+
 class ResearchResponse(BaseModel):
     thread_id: str
     status: str
     topic: str = ""
+    running: bool = False
+    error: str = ""
     draft: str = ""
     final_report: str = ""
     revision_count: int
@@ -105,11 +161,15 @@ class ResearchResponse(BaseModel):
     awaiting_review: bool
 
 
-def _state_to_response(thread_id: str, state: dict, interrupted: bool) -> ResearchResponse:
+def _state_to_response(
+    thread_id: str, state: dict, interrupted: bool, *, running: bool = False, error: str = ""
+) -> ResearchResponse:
     return ResearchResponse(
         thread_id=thread_id,
         status=state.get("status", "unknown"),
         topic=state.get("topic", ""),
+        running=running,
+        error=error,
         draft=state.get("draft", ""),
         final_report=state.get("final_report", ""),
         revision_count=state.get("revision_count", 0),
@@ -145,34 +205,36 @@ def get_metrics() -> dict:
     return metrics.get_metrics_snapshot()
 
 
-@app.post("/research", response_model=ResearchResponse, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/research",
+    response_model=ResearchResponse,
+    status_code=202,
+    dependencies=[Depends(require_api_key)],
+)
 @limiter.limit(config.RATE_LIMIT)
-async def start_research(request: Request, body: ResearchRequest) -> ResearchResponse:
-
+async def start_research(
+    request: Request, body: ResearchRequest, background: BackgroundTasks
+) -> ResearchResponse:
+    """Accept the topic and return a thread_id immediately (202). The graph runs
+    in the background; poll GET /research/{thread_id} for per-node progress."""
     thread_id = str(uuid.uuid4())
     metrics.record_report_started()
-    start = time.perf_counter()
 
     initial_state = {
         "topic": body.topic, "sub_queries": [], "research_notes": "", "sources": [],
         "analysis": "", "draft": "", "revision_feedback": "", "revision_count": 0,
         "final_report": "", "status": "started",
     }
-    thread_config = {"configurable": {"thread_id": thread_id}}
 
-    try:
-        result = await asyncio.to_thread(request.app.state.graph.invoke, initial_state, config=thread_config)
-    except Exception as exc:
-        metrics.record_request((time.perf_counter() - start) * 1000, error=True)
-        logger.error(json.dumps({"event": "error", "thread_id": thread_id, "error": str(exc)}))
-        raise HTTPException(status_code=500, detail="Failed to generate report. Check server logs.")
+    _job_start(thread_id)
+    background.add_task(_run_graph, request.app.state.graph, thread_id, initial_state, body.topic)
 
-    latency_ms = (time.perf_counter() - start) * 1000
-    metrics.record_request(latency_ms)
     logger.info(json.dumps({
-        "event": "research_started", "thread_id": thread_id, "topic": body.topic, "latency_ms": round(latency_ms),
+        "event": "research_accepted", "thread_id": thread_id, "topic": body.topic,
     }))
-    return _state_to_response(thread_id, result, interrupted="__interrupt__" in result)
+    return _state_to_response(
+        thread_id, {"topic": body.topic, "status": "started"}, False, running=True
+    )
 
 
 @app.get("/research/{thread_id}", response_model=ResearchResponse, dependencies=[Depends(require_api_key)])
@@ -180,43 +242,59 @@ async def get_research(request: Request, thread_id: str) -> ResearchResponse:
 
     thread_config = {"configurable": {"thread_id": thread_id}}
     snapshot = await asyncio.to_thread(request.app.state.graph.get_state, thread_config)
+    job = _job_state(thread_id)
+
     if not snapshot.values:
+        # A thread accepted moments ago may not have checkpointed yet. That is
+        # not a 404 -- the client is polling a thread_id we just handed it.
+        if job["running"] or job["error"]:
+            return _state_to_response(
+                thread_id, {"status": "started"}, False,
+                running=job["running"], error=job["error"],
+            )
         raise HTTPException(status_code=404, detail=f"No research thread found for id {thread_id}")
 
-    interrupted = bool(snapshot.next)  # non-empty means paused (awaiting review)
-    return _state_to_response(thread_id, snapshot.values, interrupted)
+    # snapshot.next is also non-empty mid-run, so "awaiting review" needs both:
+    # the graph is suspended AND no run is in flight.
+    interrupted = bool(snapshot.next) and not job["running"]
+    return _state_to_response(
+        thread_id, snapshot.values, interrupted,
+        running=job["running"], error=job["error"],
+    )
 
 
-@app.post("/research/{thread_id}/review", response_model=ResearchResponse, dependencies=[Depends(require_api_key)])
+@app.post(
+    "/research/{thread_id}/review",
+    response_model=ResearchResponse,
+    status_code=202,
+    dependencies=[Depends(require_api_key)],
+)
 @limiter.limit(config.RATE_LIMIT)
-async def review_research(request: Request, thread_id: str, body: ReviewRequest) -> ResearchResponse:
-
+async def review_research(
+    request: Request, thread_id: str, body: ReviewRequest, background: BackgroundTasks
+) -> ResearchResponse:
+    """Accept the decision and return immediately (202). A revision runs the
+    writer again, which is slow; poll GET /research/{thread_id} for progress."""
     thread_config = {"configurable": {"thread_id": thread_id}}
     snapshot = await asyncio.to_thread(request.app.state.graph.get_state, thread_config)
     if not snapshot.values:
         raise HTTPException(status_code=404, detail=f"No research thread found for id {thread_id}")
+
+    job = _job_state(thread_id)
+    if job["running"]:
+        raise HTTPException(status_code=409, detail="This report is still being generated. Wait for it to finish.")
     if not snapshot.next:
         raise HTTPException(status_code=400, detail="This report is not awaiting review (already finalized, or not yet started).")
 
     if not body.approved:
         metrics.record_revision_requested()
 
-    start = time.perf_counter()
-    resume_payload = {"approved": body.approved, "feedback": body.feedback}
-    try:
-        result = await asyncio.to_thread(request.app.state.graph.invoke, Command(resume=resume_payload), config=thread_config)
-    except Exception as exc:
-        metrics.record_request((time.perf_counter() - start) * 1000, error=True)
-        logger.error(json.dumps({"event": "error", "thread_id": thread_id, "error": str(exc)}))
-        raise HTTPException(status_code=500, detail="Failed to process review. Check server logs.")
-
-    latency_ms = (time.perf_counter() - start) * 1000
-    metrics.record_request(latency_ms)
-    if result.get("status") == "finalized":
-        metrics.record_report_finalized()
+    resume_payload = Command(resume={"approved": body.approved, "feedback": body.feedback})
+    _job_start(thread_id)
+    background.add_task(_run_graph, request.app.state.graph, thread_id, resume_payload,
+                        snapshot.values.get("topic", ""))
 
     logger.info(json.dumps({
-        "event": "review_processed", "thread_id": thread_id, "approved": body.approved,
-        "revision_count": result.get("revision_count"), "latency_ms": round(latency_ms),
+        "event": "review_accepted", "thread_id": thread_id, "approved": body.approved,
     }))
-    return _state_to_response(thread_id, result, interrupted="__interrupt__" in result)
+    return _state_to_response(thread_id, snapshot.values, False, running=True)

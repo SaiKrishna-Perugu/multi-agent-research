@@ -1,4 +1,35 @@
-"""Tests for the FastAPI endpoints -- full request/response lifecycle."""
+"""Tests for the FastAPI endpoints -- full request/response lifecycle.
+
+POST /research and POST .../review return 202 immediately and run the graph in a
+background task, so these tests start work and then poll until it settles.
+"""
+import time
+
+
+def _await_thread(client, thread_id, tries=100):
+    """Poll GET until the background run stops. Returns the final body."""
+    for _ in range(tries):
+        r = client.get("/research/" + thread_id)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        if not body["running"]:
+            return body
+        time.sleep(0.02)
+    raise AssertionError("thread still running after " + str(tries) + " polls")
+
+
+def _start(client, topic):
+    """POST a topic, wait for the run to settle, return the final body."""
+    r = client.post("/research", json={"topic": topic})
+    assert r.status_code == 202, r.text
+    assert r.json()["running"] is True
+    return _await_thread(client, r.json()["thread_id"])
+
+
+def _review(client, thread_id, **payload):
+    r = client.post("/research/" + thread_id + "/review", json=payload)
+    assert r.status_code == 202, r.text
+    return _await_thread(client, thread_id)
 
 
 def test_health(mocked_client):
@@ -15,13 +46,12 @@ def test_ready(mocked_client):
 
 
 def test_start_research_pauses_for_review(mocked_client):
-    r = mocked_client.post("/research", json={"topic": "small modular reactors"})
-    assert r.status_code == 200
-    body = r.json()
+    body = _start(mocked_client, "small modular reactors")
     assert body["awaiting_review"] is True
     assert body["draft"] == "draft v1"
     assert body["revision_count"] == 0
     assert body["sub_queries"] == ["q1", "q2"]
+    assert body["topic"] == "small modular reactors"
     assert body["thread_id"]
 
 
@@ -31,11 +61,12 @@ def test_start_research_rejects_empty_topic(mocked_client):
 
 
 def test_get_research_status(mocked_client):
-    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    started = _start(mocked_client, "test")
     r = mocked_client.get(f"/research/{started['thread_id']}")
     assert r.status_code == 200
     assert r.json()["draft"] == started["draft"]
     assert r.json()["sub_queries"] == ["q1", "q2"]
+    assert r.json()["topic"] == "test"
 
 
 def test_get_research_unknown_thread_404s(mocked_client):
@@ -44,12 +75,10 @@ def test_get_research_unknown_thread_404s(mocked_client):
 
 
 def test_review_revision_increments_count_and_produces_new_draft(mocked_client):
-    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    started = _start(mocked_client, "test")
     thread_id = started["thread_id"]
 
-    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "add more detail"})
-    assert r.status_code == 200
-    body = r.json()
+    body = _review(mocked_client, thread_id, approved=False, feedback="add more detail")
     assert body["draft"] == "draft v2"
     assert body["revision_count"] == 1
     assert body["awaiting_review"] is True
@@ -57,37 +86,34 @@ def test_review_revision_increments_count_and_produces_new_draft(mocked_client):
 
 
 def test_review_approval_finalizes(mocked_client):
-    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    started = _start(mocked_client, "test")
     thread_id = started["thread_id"]
 
-    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
-    assert r.status_code == 200
-    body = r.json()
+    body = _review(mocked_client, thread_id, approved=True)
     assert body["status"] == "finalized"
     assert body["final_report"] == "draft v1"
     assert body["awaiting_review"] is False
 
 
 def test_review_on_already_finalized_thread_is_rejected(mocked_client):
-    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    started = _start(mocked_client, "test")
     thread_id = started["thread_id"]
-    mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})  # finalize it
+    _review(mocked_client, thread_id, approved=True)  # finalize it
 
     r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
     assert r.status_code == 400  # not awaiting review anymore
 
 
 def test_revision_cap_forces_finalization(mocked_client):
-    started = mocked_client.post("/research", json={"topic": "test"}).json()
+    started = _start(mocked_client, "test")
     thread_id = started["thread_id"]
 
     # MAX_REVISIONS = 3 -- request revisions 4 times; the 4th must force-finalize.
     for _ in range(3):
-        r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "more"})
-        assert r.json()["awaiting_review"] is True
+        body = _review(mocked_client, thread_id, approved=False, feedback="more")
+        assert body["awaiting_review"] is True
 
-    r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": False, "feedback": "more"})
-    body = r.json()
+    body = _review(mocked_client, thread_id, approved=False, feedback="more")
     assert body["status"] == "finalized"
     assert body["awaiting_review"] is False
     assert "maximum revision limit" in body["final_report"]
@@ -101,10 +127,14 @@ def test_metrics_reflect_activity(mocked_client):
     assert body["request_count"] >= 1
 
 
-def test_research_failure_returns_500_not_crash(failing_researcher_client):
+def test_research_failure_surfaces_via_error_field(failing_researcher_client):
+    """The graph now runs in the background, so a node blowing up cannot be a 500
+    on the POST. It has to reach the client through the polled error field."""
     r = failing_researcher_client.post("/research", json={"topic": "test"})
-    assert r.status_code == 500
-    assert "detail" in r.json()
+    assert r.status_code == 202
+    body = _await_thread(failing_researcher_client, r.json()["thread_id"])
+    assert body["running"] is False
+    assert "failed" in body["error"].lower()
 
 
 def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeypatch):
@@ -118,10 +148,10 @@ def test_auth_accepts_correct_key(mocked_client, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "API_KEY", "secret123")
     r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "secret123"})
-    assert r.status_code == 200
+    assert r.status_code == 202
 
 
-def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents):
+def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents, monkeypatch):
     """Verify thread state created in one app instance is readable from a fresh app instance sharing the same SQLite DB file."""
     from unittest.mock import patch
 
@@ -130,7 +160,7 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents):
     from app import config
 
     db_file = str(tmp_path / "test_checkpoints.sqlite")
-    config.DB_PATH = db_file
+    monkeypatch.setattr(config, "DB_PATH", db_file)
 
     with patch("app.graph.researcher_node", fake_agents["researcher"]), \
          patch("app.graph.analyst_node", fake_agents["analyst"]), \
@@ -140,7 +170,9 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents):
         # App Instance 1: start research thread
         with TestClient(app) as client1:
             res1 = client1.post("/research", json={"topic": "persistent topic"})
+            assert res1.status_code == 202
             thread_id = res1.json()["thread_id"]
+            _await_thread(client1, thread_id)
 
         # App Instance 2: verify thread is still retrieved from disk
         with TestClient(app) as client2:
@@ -151,5 +183,11 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents):
 
             # Resume and finalize in instance 2
             rev_res = client2.post(f"/research/{thread_id}/review", json={"approved": True})
-            assert rev_res.status_code == 200
-            assert rev_res.json()["status"] == "finalized"
+            assert rev_res.status_code == 202
+            assert _await_thread(client2, thread_id)["status"] == "finalized"
+
+
+def test_root_serves_the_web_ui(mocked_client):
+    r = mocked_client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
