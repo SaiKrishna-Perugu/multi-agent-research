@@ -8,8 +8,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <!-- Marked.js for Markdown Rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Vendored + pinned. Unpinned CDN scripts execute with full page authority.
+         Source: https://cdn.jsdelivr.net/npm/marked@18.0.10/lib/marked.umd.js -->
+    <script src="/static/vendor/marked-18.0.10.umd.js"></script>
+    <!-- Source: https://cdn.jsdelivr.net/npm/dompurify@3.4.14/dist/purify.min.js -->
+    <script src="/static/vendor/dompurify-3.4.14.min.js"></script>
     <style>
         :root {
             --bg-dark: #090d16;
@@ -277,6 +280,7 @@
         }
 
         .topic-pill {
+            font-family: inherit;
             padding: 6px 14px;
             border-radius: 20px;
             font-size: 12px;
@@ -434,6 +438,11 @@
             margin-bottom: 16px;
         }
 
+        .review-textarea:focus {
+            border-color: var(--accent-warning);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+        }
+
         .review-actions {
             display: flex;
             gap: 12px;
@@ -479,6 +488,7 @@
         }
 
         .tab-btn {
+            font-family: inherit;
             padding: 6px 14px;
             border-radius: var(--radius-sm);
             font-size: 13px;
@@ -737,10 +747,10 @@
 
             <div class="quick-topics">
                 <span>Try Example Topics:</span>
-                <div class="topic-pill" onclick="setTopic('Current state of small modular nuclear reactors')">⚛️ Nuclear SMRs</div>
-                <div class="topic-pill" onclick="setTopic('Agentic AI orchestration patterns in 2026')">🤖 Agentic AI 2026</div>
-                <div class="topic-pill" onclick="setTopic('Quantum cryptography standards and enterprise security')">🛡️ Quantum Cryptography</div>
-                <div class="topic-pill" onclick="setTopic('Groq LPU vs NVIDIA GPU latency and throughput benchmarks')">⚡ Groq LPU Benchmarks</div>
+                <button type="button" class="topic-pill" onclick="setTopic('Current state of small modular nuclear reactors')">⚛️ Nuclear SMRs</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Agentic AI orchestration patterns in 2026')">🤖 Agentic AI 2026</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Quantum cryptography standards and enterprise security')">🛡️ Quantum Cryptography</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Groq LPU vs NVIDIA GPU latency and throughput benchmarks')">⚡ Groq LPU Benchmarks</button>
             </div>
 
             <div class="lookup-bar">
@@ -935,6 +945,7 @@
                 return;
             }
 
+            switchTab('rendered');
             isProcessing = true;
             document.getElementById('startBtn').disabled = true;
             document.getElementById('reviewBanner').style.display = 'none';
@@ -958,7 +969,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(await errorMessage(response));
                 }
 
                 const data = await response.json();
@@ -967,13 +978,18 @@
 
                 renderResponse(data);
             } catch (err) {
-                document.getElementById('reportDisplay').innerHTML = `
-                    <div class="empty-state" style="color: var(--accent-error);">
-                        <div class="empty-state-icon">⚠️</div>
-                        <h3>Research Request Failed</h3>
-                        <p>${err.message}</p>
-                    </div>
-                `;
+                const box = document.createElement('div');
+                box.className = 'empty-state';
+                box.style.color = 'var(--accent-error)';
+                const icon = document.createElement('div');
+                icon.className = 'empty-state-icon';
+                icon.textContent = '⚠️';
+                const h = document.createElement('h3');
+                h.textContent = 'Research Request Failed';
+                const msg = document.createElement('p');
+                msg.textContent = err.message;
+                box.append(icon, h, msg);
+                document.getElementById('reportDisplay').replaceChildren(box);
             } finally {
                 isProcessing = false;
                 document.getElementById('startBtn').disabled = false;
@@ -987,6 +1003,7 @@
                 return;
             }
 
+            switchTab('rendered');
             currentThreadId = threadId;
             document.getElementById('reportDisplay').innerHTML = `
                 <div class="loading-state">
@@ -996,9 +1013,9 @@
             `;
 
             try {
-                const response = await fetch(`/research/${threadId}`);
+                const response = await fetch(`/research/${encodeURIComponent(threadId)}`);
                 if (!response.ok) {
-                    throw new Error(`Thread not found or error status: ${response.status}`);
+                    throw new Error(await errorMessage(response));
                 }
                 const data = await response.json();
                 renderResponse(data);
@@ -1010,6 +1027,7 @@
         async function submitReview(approved) {
             if (!currentThreadId) return;
 
+            switchTab('rendered');
             const feedback = document.getElementById('feedbackInput').value.trim();
             document.getElementById('reviewBanner').style.display = 'none';
 
@@ -1021,14 +1039,14 @@
             `;
 
             try {
-                const response = await fetch(`/research/${currentThreadId}/review`, {
+                const response = await fetch(`/research/${encodeURIComponent(currentThreadId)}/review`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ approved: approved, feedback: feedback })
                 });
 
                 if (!response.ok) {
-                    throw new Error(`Review submit failed: ${response.status}`);
+                    throw new Error(await errorMessage(response));
                 }
 
                 const data = await response.json();
@@ -1040,10 +1058,15 @@
 
         function renderResponse(data) {
             const content = data.final_report || data.draft || 'No content available.';
-            document.getElementById('reportHeadline').textContent = `Report: ${data.thread_id.substring(0, 8)}... (${data.status})`;
-            
-            // Render Markdown
-            document.getElementById('reportDisplay').innerHTML = `<div class="report-body">${marked.parse(content)}</div>`;
+            document.getElementById('reportHeadline').textContent =
+                data.topic || `Report: ${data.thread_id.substring(0, 8)}... (${data.status})`;
+
+            // Render Markdown. LLM output is derived from scraped pages, so it is
+            // untrusted: sanitize before it reaches the DOM.
+            const body = document.createElement('div');
+            body.className = 'report-body';
+            body.innerHTML = DOMPurify.sanitize(marked.parse(content));
+            document.getElementById('reportDisplay').replaceChildren(body);
             document.getElementById('rawDisplay').textContent = content;
 
             // Render Sub-Queries
@@ -1059,12 +1082,32 @@
             // Render Sources
             const sourcesContainer = document.getElementById('sourcesContainer');
             if (data.sources && data.sources.length > 0) {
-                sourcesContainer.innerHTML = data.sources.map(s => `
-                    <div class="source-item">
-                        <div class="source-title">${escapeHtml(s.title || 'Web Reference')}</div>
-                        <a class="source-url" href="${s.url}" target="_blank" rel="noopener">${escapeHtml(s.url)}</a>
-                    </div>
-                `).join('');
+                // Source URLs come from Tavily, i.e. third-party pages. Build with DOM
+                // APIs and allow only http/https so javascript: and data: cannot land.
+                sourcesContainer.replaceChildren();
+                for (const s of data.sources) {
+                    if (!s || !s.url) continue;
+                    let u;
+                    try { u = new URL(s.url); } catch { continue; }
+                    if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
+
+                    const item = document.createElement('div');
+                    item.className = 'source-item';
+
+                    const title = document.createElement('div');
+                    title.className = 'source-title';
+                    title.textContent = s.title || 'Web Reference';
+
+                    const link = document.createElement('a');
+                    link.className = 'source-url';
+                    link.href = u.href;
+                    link.target = '_blank';
+                    link.rel = 'noopener';
+                    link.textContent = u.href;
+
+                    item.append(title, link);
+                    sourcesContainer.append(item);
+                }
             } else {
                 sourcesContainer.innerHTML = `<p style="font-size: 13px; color: var(--text-dim);">No citations extracted.</p>`;
             }
@@ -1080,6 +1123,19 @@
             }
 
             updatePipelineUI(data.status, data.awaiting_review, data.revision_count);
+        }
+
+        // FastAPI `detail` is a string for HTTPException but a list of dicts for 422.
+        // The rate limiter returns `error`, not `detail`. A proxy 502 returns no JSON
+        // at all, which would otherwise throw inside the error handler.
+        async function errorMessage(response) {
+            try {
+                const d = await response.json();
+                if (typeof d.detail === 'string') return d.detail;
+                if (Array.isArray(d.detail)) return d.detail.map(e => e.msg).join('; ');
+                if (d.error) return d.error;
+            } catch { /* non-JSON body */ }
+            return `Request failed (${response.status})`;
         }
 
         function escapeHtml(text) {
