@@ -67,15 +67,18 @@ cp .env.example .env
 
 ## Usage -- full lifecycle via curl
 
-**1. Start a report** (this runs researcher -> analyst -> writer and pauses for review; takes 15-40s depending on search/LLM latency):
+**1. Start a report.** Returns `202` immediately with a `thread_id`; the researcher ->
+analyst -> writer run happens in the background and takes roughly 30-50s:
 ```bash
 curl -X POST http://127.0.0.1:8000/research \
   -H "Content-Type: application/json" \
   -d '{"topic": "current state of small modular nuclear reactors"}'
 ```
-Response includes a `thread_id` and the first `draft`, with `awaiting_review: true`.
+Response: `{"thread_id": "...", "status": "started", "running": true}`.
 
-**2. Check status any time** (e.g. from a different process, hours later):
+**2. Poll for progress.** `status` walks `started -> researched -> analyzed -> drafted` as
+each agent finishes, and `running` flips to `false` when the graph pauses for review. This is
+what drives the pipeline tracker in the Web Studio:
 ```bash
 curl http://127.0.0.1:8000/research/{thread_id}
 ```
@@ -86,7 +89,8 @@ curl -X POST http://127.0.0.1:8000/research/{thread_id}/review \
   -H "Content-Type: application/json" \
   -d '{"approved": false, "feedback": "add more detail on cost per MWh"}'
 ```
-Returns a new `draft` with `revision_count` incremented, paused for review again.
+Returns `202`. The writer re-runs in the background; poll step 2 again until `running` is
+false, then read the new `draft` with `revision_count` incremented.
 
 **3b. Or approve it:**
 ```bash
@@ -94,7 +98,8 @@ curl -X POST http://127.0.0.1:8000/research/{thread_id}/review \
   -H "Content-Type: application/json" \
   -d '{"approved": true}'
 ```
-Returns `status: "finalized"` and the `final_report`.
+Returns `202`. Poll step 2 once more; when `running` is false you get
+`status: "finalized"` and the `final_report`.
 
 ## Testing
 
@@ -144,6 +149,13 @@ gcloud run deploy multi-agent-research \
   ephemeral container filesystem, so each instance opens its own file and that
   file dies with the instance. Fine for a single-instance demo; the documented
   next step is Postgres.
+- **Background run state is in-process.** The graph runs in a FastAPI background task so
+  `POST /research` can return a `thread_id` immediately. The `running`/`error` flags behind
+  that live in a module-level dict, so a restart mid-run loses them: the SQLite checkpoint
+  survives and the thread resumes from its last completed node, but the in-flight flag does
+  not. On Cloud Run this is sharper -- CPU is throttled outside request handling and
+  instances scale to zero, so a background run can stall or be killed. Local and
+  single-instance only, as-is.
 - **No timeout eviction for abandoned threads.** `REVIEW_TIMEOUT_MINUTES`
   is defined in config but not yet enforced -- a report that's never
   reviewed just sits in memory indefinitely. A real system would need a
