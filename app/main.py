@@ -12,6 +12,7 @@ Run:
     uv run uvicorn app.main:app --reload
 """
 import asyncio
+import hmac
 import json
 import logging
 import threading
@@ -81,7 +82,7 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 def require_api_key(x_api_key: str = Header(default="")) -> None:
-    if config.API_KEY and x_api_key != config.API_KEY:
+    if config.API_KEY and not hmac.compare_digest(x_api_key, config.API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header")
 
 
@@ -110,6 +111,20 @@ _jobs_lock = threading.Lock()
 def _job_start(thread_id: str) -> None:
     with _jobs_lock:
         _jobs[thread_id] = {"running": True, "error": ""}
+
+
+def _job_try_claim(thread_id: str) -> bool:
+    """Atomically claim thread_id for a run, or refuse if one is already in
+    flight. review_research's "not running" check and its claim must be one
+    critical section -- a separate read-then-write leaves a window where two
+    overlapping /review calls for the same thread_id (double submit, two open
+    tabs) both pass the check and both schedule graph.invoke() against the
+    same checkpoint."""
+    with _jobs_lock:
+        if _jobs.get(thread_id, {}).get("running"):
+            return False
+        _jobs[thread_id] = {"running": True, "error": ""}
+        return True
 
 
 def _job_finish(thread_id: str, error: str = "") -> None:
@@ -205,7 +220,11 @@ def ready() -> dict:
     # Confirms the graph compiled and dependencies (Tavily/LLM provider
     # config) loaded without error at startup -- distinct from /health,
     # which only confirms the process is alive.
-    return {"status": "ready", "model_provider": config.MODEL_PROVIDER, "max_revisions": MAX_REVISIONS}
+    model = config.VERTEX_CHAT_MODEL if config.MODEL_PROVIDER == "vertexai" else config.GROQ_CHAT_MODEL
+    return {
+        "status": "ready", "model_provider": config.MODEL_PROVIDER, "model": model,
+        "max_revisions": MAX_REVISIONS,
+    }
 
 
 @app.get("/metrics")
@@ -262,11 +281,14 @@ async def get_research(request: Request, thread_id: str) -> ResearchResponse:
             )
         raise HTTPException(status_code=404, detail=f"No research thread found for id {thread_id}")
 
-    # snapshot.next is also non-empty for a thread that hasn't run its first
-    # node yet (e.g. it failed on "researcher" before ever reaching an
-    # interrupt), so "awaiting review" needs all three: the graph is
-    # suspended, no run is in flight, and the last run didn't error out.
-    interrupted = bool(snapshot.next) and not job["running"] and not job["error"]
+    # snapshot.next being non-empty just means "some node runs next" -- true
+    # for the initial pre-researcher state and mid-revision states too, not
+    # just a genuine interrupt() pause. Checking that "human_review" is
+    # specifically the next node pins this to the real pause point, and
+    # because it reads the persisted checkpoint rather than the in-memory
+    # _jobs dict, it stays correct across a restart that loses job["error"]
+    # (e.g. the process crashed before a failure was ever recorded).
+    interrupted = "human_review" in snapshot.next and not job["running"]
     return _state_to_response(
         thread_id, snapshot.values, interrupted,
         running=job["running"], error=job["error"],
@@ -290,20 +312,20 @@ async def review_research(
     if not snapshot.values:
         raise HTTPException(status_code=404, detail=f"No research thread found for id {thread_id}")
 
-    job = _job_state(thread_id)
-    if job["running"]:
-        raise HTTPException(status_code=409, detail="This report is still being generated. Wait for it to finish.")
-    if not snapshot.next or job["error"]:
-        # job["error"] means the last run blew up before reaching an interrupt
-        # (or during a revision) -- snapshot.next can still be non-empty in
-        # that case, but there is no live interrupt() waiting for this resume.
+    if "human_review" not in snapshot.next:
+        # See get_research's comment: pinning to the specific next node (not
+        # just "next is non-empty") is what makes this correct even after a
+        # restart wipes job["error"] for a thread that failed before, or
+        # during, an interrupt.
         raise HTTPException(status_code=400, detail="This report is not awaiting review (already finalized, failed, or not yet started).")
+
+    if not _job_try_claim(thread_id):
+        raise HTTPException(status_code=409, detail="This report is still being generated. Wait for it to finish.")
 
     if not body.approved:
         metrics.record_revision_requested()
 
     resume_payload = Command(resume={"approved": body.approved, "feedback": body.feedback})
-    _job_start(thread_id)
     background.add_task(_run_graph, request.app.state.graph, thread_id, resume_payload,
                         snapshot.values.get("topic", ""))
 

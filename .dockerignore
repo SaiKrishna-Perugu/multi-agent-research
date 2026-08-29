@@ -4,6 +4,7 @@ __pycache__/
 .env
 .env.example
 logs/
+checkpoints.sqlite*
 .git/
 .gitignore
 .python-version

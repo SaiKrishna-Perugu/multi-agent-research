@@ -75,9 +75,6 @@ context manager for the app's lifetime in `lifespan`. Setting `DB_PATH=":memory:
 `MemorySaver` — `tests/conftest.py` does exactly this at import time. Thread state persists
 across restarts, so a paused report can be resumed much later.
 
-Note: `graph.py` exposes a `compile_graph(checkpointer)` helper that `main.py` does not
-currently use (it calls `build_graph().compile(...)` inline).
-
 ### Fail-open behavior
 
 Two deliberate degradations, both tested explicitly — don't "fix" them into hard failures
@@ -88,11 +85,15 @@ single search on the raw topic, and individual Tavily query failures are swallow
 
 `POST /research` (**202**, returns `thread_id` immediately with `running: true`; the graph
 runs in a FastAPI `BackgroundTask` and the client polls for progress) ·
-`GET /research/{thread_id}` (poll target; `awaiting_review` requires `snapshot.next`
-non-empty, no run in flight, **and** no error on the last run — `next` is also non-empty
-mid-run and for a thread that failed before ever reaching an interrupt) ·
-`POST /research/{thread_id}/review` (**202**, `{approved, feedback}`; a revision re-runs the
-writer in the background, `409` if a run is already in flight) · `/health` · `/ready` ·
+`GET /research/{thread_id}` (poll target; `awaiting_review` requires `"human_review" in
+snapshot.next` **and** no run in flight — checking the specific next node, not just that
+`next` is non-empty, is what keeps this correct across a restart: `next` is also non-empty
+for the pre-researcher initial state and mid-revision states, and `snapshot.next` is
+persisted in the checkpoint so this doesn't depend on the in-memory `_jobs` dict surviving)
+· `POST /research/{thread_id}/review` (**202**, `{approved, feedback}`; a revision re-runs
+the writer in the background; `400` if `"human_review" not in snapshot.next`, `409` if a run
+is already in flight — claimed atomically via `_job_try_claim` so two overlapping review
+submissions for the same thread can't both schedule a run) · `/health` · `/ready` ·
 `/metrics` · `/` serves `app/static/index.html` (the Web Studio UI), falling back to `/docs`.
 
 Auth is opt-in: `X-API-Key` is only enforced when `API_KEY` is set in config, so local dev

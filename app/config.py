@@ -1,9 +1,7 @@
 """
-Centralized configuration. Every other module reads settings from here.
-
-Reuses the same patterns as the rag-capstone project deliberately (provider
-abstraction, Secret Manager fallback, structured tracing config) -- proof
-that these patterns generalize across projects, not one-off tricks.
+Centralized configuration. Every other module reads settings from here,
+never `os.getenv` directly -- keeps provider abstraction, Secret Manager
+fallback, and validation timing consistent in one place.
 """
 import logging
 import os
@@ -17,10 +15,7 @@ _logger = logging.getLogger("config")
 
 def _get_secret(env_name: str, default: str = "") -> str:
     """Env var first (local dev); falls back to GCP Secret Manager if
-    GCP_PROJECT_ID is set. A lookup failure is logged, not silently
-    swallowed -- an earlier version of this same function in the
-    rag-capstone project used a bare `except: pass` here, which could mask
-    a real misconfiguration as an empty secret. Fixed here from the start."""
+    GCP_PROJECT_ID is set."""
     value = os.getenv(env_name)
     if value:
         return value
@@ -35,11 +30,13 @@ def _get_secret(env_name: str, default: str = "") -> str:
             response = client.access_secret_version(name=name)
             return response.payload.data.decode("UTF-8")
         except Exception as exc:
+            # Logged, not swallowed -- a bare `except: pass` here would mask
+            # a real misconfiguration as an empty secret.
             _logger.warning(f"Secret Manager lookup for '{env_name}' failed, falling back to default: {exc}")
     return default
 
 
-# --- Model provider (same pattern as rag-capstone) --------------------------
+# --- Model provider -----------------------------------------------------
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = _get_secret("GROQ_API_KEY")
@@ -67,10 +64,10 @@ MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "5"))
 SEARCH_DEPTH = os.getenv("SEARCH_DEPTH", "basic")  # "basic" or "advanced"
 MAX_RESEARCH_QUERIES = int(os.getenv("MAX_RESEARCH_QUERIES", "4"))  # sub-queries per report
 
-# --- API auth / rate limiting / CORS (same pattern as rag-capstone) ---------
+# --- API auth / rate limiting / CORS -------------------------------------
 API_KEY = _get_secret("API_KEY")
 RATE_LIMIT = os.getenv("RATE_LIMIT", "10/minute")
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",")]
 
 # --- LangSmith tracing --------------------------------------------------------
 LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"

@@ -135,9 +135,19 @@ gcloud run deploy multi-agent-research \
   --allow-unauthenticated \
   --memory 1Gi \
   --timeout 300 \
+  --min-instances 1 \
+  --concurrency 1 \
   --set-env-vars MODEL_PROVIDER=groq \
   --set-secrets GROQ_API_KEY=groq-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
 ```
+
+`--min-instances 1` keeps an instance warm so a background run's thread isn't
+paused mid-flight by scale-to-zero; `--concurrency 1` stops Cloud Run from
+routing a second request onto an instance whose CPU is already throttled
+running a background task for a prior request. Neither eliminates the
+single-instance/in-process-state limitations below -- they mitigate the
+specific CPU-throttling and cold-start failure mode, not the underlying
+architecture.
 
 ## Known limitations (say these before you're asked)
 

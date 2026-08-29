@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.agents import researcher_node, writer_node
+from app.agents import analyst_node, researcher_node, writer_node
 from app.tools import SearchResult
 
 
@@ -50,6 +50,17 @@ def test_researcher_uses_decomposed_queries_when_valid():
     mock_search.assert_called_once_with(["query one", "query two"])
     assert result["research_notes"] == "synthesized notes"
     assert len(result["sources"]) == 2
+
+
+def test_analyst_produces_structured_analysis():
+    llm = _fake_llm("## Key Themes\n...\n## Gaps & Contradictions\n...")
+    with patch("app.agents.get_llm", return_value=llm):
+        result = analyst_node({"topic": "t", "research_notes": "some notes"})
+
+    assert result["status"] == "analyzed"
+    assert "Key Themes" in result["analysis"]
+    human_message = llm.invoke.call_args[0][0][1][1]
+    assert "some notes" in human_message
 
 
 def test_writer_first_pass_uses_analysis_not_feedback():

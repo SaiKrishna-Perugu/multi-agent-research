@@ -51,8 +51,11 @@ a general professional audience. Structure: a brief executive summary, \
 2-4 body sections following the analysis's key themes, and a short \
 "Open Questions" section drawn from the analysis's gaps/contradictions. \
 Cite sources inline using the URLs present in the analysis/notes where \
-specific claims are made. Keep it factual and grounded in the provided \
-material -- do not invent statistics, quotes, or sources."""
+specific claims are made, formatted as standard Markdown links, e.g. \
+"Revenue grew 12% in 2025 ([source](https://example.com/article))" -- \
+never bare URLs and never any other bracket style. Keep it factual and \
+grounded in the provided material -- do not invent statistics, quotes, or \
+sources."""
 
 _REVISION_SYSTEM_PROMPT = """You are revising a report draft based on \
 reviewer feedback. Keep everything that wasn't flagged, and directly \
@@ -60,13 +63,9 @@ address the feedback given. Return the complete revised report, not just \
 the changed portion."""
 
 
-def _model_for(agent_override: str) -> str:
-    return agent_override or ""
-
-
 @traceable(name="agent.researcher", run_type="chain")
 def researcher_node(state: dict) -> dict:
-    llm = get_llm(temperature=0.2, model_override=_model_for(config.RESEARCHER_MODEL_OVERRIDE))
+    llm = get_llm(temperature=0.2, model_override=config.RESEARCHER_MODEL_OVERRIDE)
 
     decompose_prompt = _DECOMPOSE_SYSTEM_PROMPT.format(n=config.MAX_RESEARCH_QUERIES)
     response = llm.invoke([
@@ -79,8 +78,8 @@ def researcher_node(state: dict) -> dict:
             raise ValueError("empty or non-list response")
     except (json.JSONDecodeError, ValueError):
         # Fall back to a single query using the raw topic -- degraded but
-        # not a failure, matching the fail-open philosophy used elsewhere
-        # in this codebase (e.g. rag-capstone's reranker fallback).
+        # not a failure. A malformed decomposition shouldn't abort the whole
+        # research pass when searching the raw topic still produces useful results.
         sub_queries = [state["topic"]]
 
     search_results = run_multi_search(sub_queries)
@@ -114,7 +113,7 @@ def researcher_node(state: dict) -> dict:
 
 @traceable(name="agent.analyst", run_type="chain")
 def analyst_node(state: dict) -> dict:
-    llm = get_llm(temperature=0.1, model_override=_model_for(config.ANALYST_MODEL_OVERRIDE))
+    llm = get_llm(temperature=0.1, model_override=config.ANALYST_MODEL_OVERRIDE)
     response = llm.invoke([
         ("system", _ANALYSIS_SYSTEM_PROMPT),
         ("human", f"Topic: {state['topic']}\n\nRESEARCH NOTES:\n{state['research_notes']}"),
@@ -124,7 +123,7 @@ def analyst_node(state: dict) -> dict:
 
 @traceable(name="agent.writer", run_type="chain")
 def writer_node(state: dict) -> dict:
-    llm = get_llm(temperature=0.4, model_override=_model_for(config.WRITER_MODEL_OVERRIDE))
+    llm = get_llm(temperature=0.4, model_override=config.WRITER_MODEL_OVERRIDE)
 
     if state.get("revision_feedback"):
         # Revision pass: rewrite the existing draft based on feedback.

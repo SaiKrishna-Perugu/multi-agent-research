@@ -15,6 +15,8 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -32,3 +34,45 @@ jobs:
         GROQ_API_KEY: "gsk-ci-placeholder-not-real"
         TAVILY_API_KEY: "tvly-ci-placeholder-not-real"
       run: uv run pytest tests/ -v
+
+    - name: Audit dependencies for known vulnerabilities
+      # Informational for now (continue-on-error) -- turning this into a hard
+      # gate is a separate decision once there's a baseline of what it finds
+      # in the existing dependency set.
+      continue-on-error: true
+      run: uv run --with pip-audit pip-audit
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build image
+      run: docker build -t multi-agent-research:ci .
+
+    - name: Smoke test the built image
+      # Catches exactly the class of bug a bare ruff+pytest job can't: the
+      # image failing to build, or booting into a PermissionError from the
+      # non-root user (see Dockerfile) -- neither is exercised anywhere else
+      # in this pipeline.
+      run: |
+        docker run -d --name smoke -p 8080:8080 \
+          -e GROQ_API_KEY="gsk-ci-placeholder-not-real" \
+          -e TAVILY_API_KEY="tvly-ci-placeholder-not-real" \
+          multi-agent-research:ci
+        ok=""
+        for i in $(seq 1 15); do
+          if curl -sf http://localhost:8080/health; then ok=1; break; fi
+          sleep 2
+        done
+        if [ -z "$ok" ]; then
+          echo "container did not become healthy in time"
+          docker logs smoke
+          exit 1
+        fi
+
+    - name: Container logs
+      if: always()
+      run: docker logs smoke || true

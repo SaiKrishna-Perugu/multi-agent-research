@@ -701,6 +701,55 @@
             color: var(--text-main);
             font-size: 12px;
         }
+
+        /* --- Mobile: header, search box, and the 5-node pipeline tracker
+           have no wrap/scroll fallback above this point, so on a phone
+           viewport they'd overflow or crush illegibly without this. --- */
+        @media (max-width: 640px) {
+            header {
+                flex-wrap: wrap;
+                gap: 12px;
+                padding: 12px 16px;
+            }
+
+            .header-badges {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .header-links a:first-child {
+                margin-left: 0;
+            }
+
+            main {
+                padding: 16px;
+            }
+
+            .search-box {
+                flex-direction: column;
+            }
+
+            .pipeline-container {
+                overflow-x: auto;
+                justify-content: flex-start;
+                gap: 20px;
+                padding: 10px 4px;
+            }
+
+            .pipeline-progress-bar {
+                left: 26px;
+                right: 26px;
+            }
+
+            .pipeline-step {
+                width: 72px;
+                flex: 0 0 auto;
+            }
+
+            .step-label {
+                font-size: 11px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -718,7 +767,7 @@
         <div class="header-badges">
             <div class="badge">
                 <span class="badge-dot pulse" id="providerDot"></span>
-                <span id="providerText">Provider: Groq (LLaMA-3.3-70B)</span>
+                <span id="providerText">Provider: checking...</span>
             </div>
             <div class="badge">
                 <span style="color: #a855f7;">⚡</span>
@@ -738,7 +787,7 @@
         <div class="card">
             <div class="search-box">
                 <div class="input-group">
-                    <input type="text" id="topicInput" placeholder="Enter research topic (e.g. Current state of small modular nuclear reactors)..." autocomplete="off">
+                    <input type="text" id="topicInput" maxlength="500" placeholder="Enter research topic (e.g. Current state of small modular nuclear reactors)..." autocomplete="off">
                 </div>
                 <button class="btn btn-primary" id="startBtn" onclick="startResearch()">
                     <span>🚀 Launch Research</span>
@@ -794,7 +843,7 @@
         </div>
 
         <!-- Human-in-the-Loop Review Banner -->
-        <div class="review-banner" id="reviewBanner">
+        <div class="review-banner" id="reviewBanner" role="alert">
             <div class="review-header">
                 <div class="review-title">
                     <span style="font-size: 20px;">⚠️</span>
@@ -928,6 +977,7 @@
                 sp.className = 'spinner';
                 line = document.createElement('p');
                 line.id = 'workingLine';
+                line.setAttribute('aria-live', 'polite');
                 const sub = document.createElement('p');
                 sub.id = 'elapsedLine';
                 sub.style.fontSize = '12px';
@@ -946,6 +996,7 @@
             const box = document.createElement('div');
             box.className = 'empty-state';
             box.style.color = 'var(--accent-error)';
+            box.setAttribute('role', 'alert');
             const icon = document.createElement('div');
             icon.className = 'empty-state-icon';
             icon.textContent = '\u26a0\ufe0f';
@@ -1256,7 +1307,8 @@
                 const res = await fetch('/ready');
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('providerText').textContent = `Provider: ${data.model_provider.toUpperCase()}`;
+                    document.getElementById('providerText').textContent =
+                        `Provider: ${data.model_provider.toUpperCase()}${data.model ? ` (${data.model})` : ''}`;
                 }
             } catch (e) {
                 console.log('Server status fetch info:', e);

@@ -28,6 +28,32 @@ def _reset_rate_limiter():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_cache():
+    # app.providers._build_llm is lru_cache'd at module scope. A test that
+    # exercises the real provider (e.g. one asserting validate_llm_config()
+    # raises for a given (provider, temperature, model_override) key) would
+    # silently stop testing anything the moment that exact key is ever cached
+    # from a prior successful call.
+    from app.providers import _build_llm
+
+    _build_llm.cache_clear()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_jobs():
+    # app.main._jobs is a module-level dict, same singleton-module hazard as
+    # the rate limiter and the LLM cache above. Thread_ids are UUIDs so a
+    # leftover entry can't collide with another test today, but clearing it
+    # keeps this fixture's guarantee ("every test starts from a clean slate")
+    # actually true rather than true by coincidence.
+    from app.main import _jobs
+
+    _jobs.clear()
+    yield
+
+
 @pytest.fixture
 def fake_agents():
     """Deterministic replacements for the three agent nodes. draft_counter

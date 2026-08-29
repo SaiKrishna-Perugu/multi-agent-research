@@ -127,6 +127,23 @@ def test_metrics_reflect_activity(mocked_client):
     assert body["request_count"] >= 1
 
 
+def test_metrics_values_are_correct_not_just_present(mocked_client):
+    """test_metrics_reflect_activity only checks values exist; this checks
+    they're actually right, so a broken percentile/error_rate calculation
+    doesn't ship silently."""
+    _start(mocked_client, "one")
+    _start(mocked_client, "two")
+    r = mocked_client.get("/metrics")
+    body = r.json()
+
+    assert body["reports_started"] >= 2
+    assert body["request_count"] >= 2
+    assert body["error_count"] <= body["request_count"]
+    assert 0.0 <= body["error_rate"] <= 1.0
+    assert body["latency_ms_p50"] <= body["latency_ms_p95"] <= body["latency_ms_p99"]
+    assert all(body[k] >= 0 for k in ("latency_ms_p50", "latency_ms_p95", "latency_ms_p99"))
+
+
 def test_research_failure_surfaces_via_error_field(failing_researcher_client):
     """The graph now runs in the background, so a node blowing up cannot be a 500
     on the POST. It has to reach the client through the polled error field."""
@@ -151,6 +168,59 @@ def test_failed_thread_is_not_reported_or_reviewable_as_awaiting_review(failing_
     assert r.status_code == 400
 
 
+def test_crashed_job_entry_still_blocks_review_after_restart(failing_researcher_client):
+    """_jobs is documented as lost on restart (the checkpoint survives, the
+    running/error flag does not). Simulate that: let a run genuinely fail
+    (error correctly recorded), then drop its _jobs entry as a real process
+    restart would, and confirm the already-fixed awaiting_review/review gate
+    holds even with no error flag left to check -- a missing entry must not
+    be read as "clean success" for a thread that never reached interrupt()."""
+    from app.main import _jobs
+
+    r = failing_researcher_client.post("/research", json={"topic": "test"})
+    thread_id = r.json()["thread_id"]
+    _await_thread(failing_researcher_client, thread_id)
+    assert thread_id in _jobs  # sanity: the error entry exists before "restart"
+
+    _jobs.pop(thread_id, None)  # simulate the in-memory dict being lost on restart
+
+    body = failing_researcher_client.get(f"/research/{thread_id}").json()
+    assert body["awaiting_review"] is False
+
+    r = failing_researcher_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    assert r.status_code == 400
+
+
+def test_concurrent_review_calls_only_one_is_accepted(mocked_client):
+    """Two overlapping /review submissions for the same thread_id (double
+    click, two open tabs) must not both schedule a graph run against the
+    same checkpoint -- exactly one may be accepted (202). The rest are
+    rejected either as 409 (still running, if they land while the winner's
+    background run is in flight) or 400 (already finalized, if the mocked
+    -- effectively instant -- run finishes before they're scheduled), but
+    never a second 202."""
+    started = _start(mocked_client, "test")
+    thread_id = started["thread_id"]
+
+    results = []
+
+    def submit():
+        r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
+        results.append(r.status_code)
+
+    import threading
+
+    threads = [threading.Thread(target=submit) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results.count(202) == 1
+    assert set(results) <= {202, 409, 400}
+    _await_thread(mocked_client, thread_id)
+
+
 def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "API_KEY", "secret123")
@@ -162,6 +232,23 @@ def test_auth_accepts_correct_key(mocked_client, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "API_KEY", "secret123")
     r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "secret123"})
+    assert r.status_code == 202
+
+
+def test_auth_rejects_wrong_key_when_api_key_configured(mocked_client, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "API_KEY", "secret123")
+    r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "wrong"})
+    assert r.status_code == 401
+
+
+def test_start_research_rejects_topic_over_max_length(mocked_client):
+    r = mocked_client.post("/research", json={"topic": "x" * 501})
+    assert r.status_code == 422
+
+
+def test_start_research_accepts_topic_at_max_length(mocked_client):
+    r = mocked_client.post("/research", json={"topic": "x" * 500})
     assert r.status_code == 202
 
 

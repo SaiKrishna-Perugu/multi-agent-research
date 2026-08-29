@@ -1,11 +1,10 @@
 """
-Lightweight in-process metrics -- same pattern as rag-capstone's metrics.py.
-Resets on restart, not aggregated across multiple instances -- fine for a
-single Cloud Run instance / portfolio demo, documented as a real limitation
-(see README) rather than presented as production-grade.
+Lightweight in-process metrics: counters behind a lock, no external
+dependency. Resets on restart, not aggregated across multiple instances --
+fine for a single Cloud Run instance / portfolio demo, documented as a real
+limitation (see README) rather than presented as production-grade.
 """
 import threading
-import time
 from collections import deque
 
 _lock = threading.Lock()
@@ -65,13 +64,3 @@ def get_metrics_snapshot() -> dict:
             "reports_finalized": _reports_finalized,
             "revisions_requested": _revisions_requested,
         }
-
-
-class Timer:
-    """Context manager: with Timer() as t: ... ; t.elapsed_ms"""
-    def __enter__(self):
-        self._start = time.perf_counter()
-        return self
-
-    def __exit__(self, *exc):
-        self.elapsed_ms = (time.perf_counter() - self._start) * 1000

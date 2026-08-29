@@ -18,10 +18,9 @@ the reviewer's decision. This is real human-in-the-loop, not a placeholder:
 the graph is not "waiting" in a running process; it's suspended, and a
 completely separate HTTP request (potentially hours later) can resume it.
 
-MAX_REVISIONS bounds the review loop the same way rag-capstone's MAX_RETRIES
-bounds its rewrite loop -- a human could otherwise request revisions
-indefinitely; after the cap, the graph force-finalizes with the current
-best draft rather than looping forever.
+MAX_REVISIONS bounds the review loop -- a human could otherwise request
+revisions indefinitely; after the cap, the graph force-finalizes with the
+current best draft rather than looping forever.
 """
 from typing import Literal, TypedDict
 
@@ -102,10 +101,3 @@ def build_graph():
     graph.add_edge("finalize", END)
 
     return graph
-
-
-def compile_graph(checkpointer):
-    """Compile with the given checkpointer -- injected by main.py so the
-    same graph definition can run against MemorySaver (dev) or a persisted
-    backend (production) without changing this module."""
-    return build_graph().compile(checkpointer=checkpointer)

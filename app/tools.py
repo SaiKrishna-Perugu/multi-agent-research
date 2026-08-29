@@ -55,8 +55,8 @@ def run_multi_search(queries: list) -> list:
     GIL is released while each request is in flight.
 
     Errors on an individual query are still isolated -- one failed search
-    doesn't abort the whole research pass, matching the same per-item error
-    isolation philosophy used in rag-capstone's ingestion pipeline."""
+    doesn't abort the whole research pass; a partial result set is more
+    useful to the researcher node than no result at all."""
     if not queries:
         return []
 
