@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Agent Research Studio | Autonomous Report Generator</title>
-    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <title>The Research Desk | Multi-Agent Report Generator</title>
+    <!-- Google Fonts: Newsreader (serif) & Public Sans (body); JetBrains Mono
+         is kept narrowly for raw markdown / code, not general UI. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- Vendored + pinned. Unpinned CDN scripts execute with full page authority.
          Source: https://cdn.jsdelivr.net/npm/marked@18.0.10/lib/marked.umd.js -->
     <script src="/static/vendor/marked-18.0.10.umd.js"></script>
@@ -15,28 +16,21 @@
     <script src="/static/vendor/dompurify-3.4.14.min.js"></script>
     <style>
         :root {
-            --bg-dark: #090d16;
-            --bg-card: rgba(18, 24, 38, 0.75);
-            --bg-card-hover: rgba(26, 35, 54, 0.85);
-            --bg-input: #121929;
-            --border-color: rgba(255, 255, 255, 0.08);
-            --border-focus: #6366f1;
-            
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --text-dim: #64748b;
-            
-            --accent-primary: #6366f1;
-            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-            --accent-success: #10b981;
-            --accent-warning: #f59e0b;
-            --accent-error: #ef4444;
-            --accent-info: #06b6d4;
-            
-            --shadow-glow: 0 0 25px rgba(99, 102, 241, 0.25);
-            --radius-lg: 16px;
-            --radius-md: 10px;
-            --radius-sm: 6px;
+            --bg: #fbf9f5;
+            --panel: #ffffff;
+            --border-color: #ddd6c8;
+            --border-strong: #2b2620;
+
+            --text-main: #2b2620;
+            --text-muted: #746b5c;
+            --text-dim: #a49a87;
+
+            --accent-primary: #9a4a2c;
+            --accent-primary-soft: rgba(154, 74, 44, 0.09);
+            --accent-success: #5c8a63;
+            --accent-error: #a13a2c;
+
+            --radius-sm: 2px;
         }
 
         * {
@@ -46,11 +40,8 @@
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: var(--bg-dark);
-            background-image: 
-                radial-gradient(at 0% 0%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%);
+            font-family: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg);
             color: var(--text-main);
             min-height: 100vh;
             display: flex;
@@ -59,13 +50,12 @@
 
         /* --- Header --- */
         header {
-            background: rgba(9, 13, 22, 0.8);
-            backdrop-filter: blur(16px);
-            border-bottom: 1px solid var(--border-color);
-            padding: 16px 32px;
+            background: var(--bg);
+            border-bottom: 1.5px solid var(--border-strong);
+            padding: 20px 40px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
             position: sticky;
             top: 0;
             z-index: 100;
@@ -78,382 +68,346 @@
         }
 
         .brand-icon {
-            width: 40px;
-            height: 40px;
-            background: var(--accent-gradient);
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            box-shadow: var(--shadow-glow);
+            display: block;
+            flex-shrink: 0;
         }
 
         .brand-text h1 {
-            font-size: 18px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .brand-text p {
-            font-size: 12px;
-            color: var(--text-muted);
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+            font-size: 23px;
+            letter-spacing: -0.01em;
+            color: var(--text-main);
         }
 
         .header-badges {
             display: flex;
             align-items: center;
-            gap: 12px;
-        }
-
-        .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--border-color);
-            color: var(--text-muted);
+            gap: 10px;
+            font-size: 11px;
+            letter-spacing: 0.07em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            flex-wrap: wrap;
         }
 
         .badge-dot {
-            width: 8px;
-            height: 8px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: var(--accent-success);
-            box-shadow: 0 0 8px var(--accent-success);
+            display: inline-block;
         }
 
         .badge-dot.pulse {
-            animation: pulse-dot 1.5s infinite;
+            animation: pulse-dot 1.6s infinite;
         }
 
         @keyframes pulse-dot {
-            0% { opacity: 0.4; }
-            50% { opacity: 1; transform: scale(1.2); }
-            100% { opacity: 0.4; }
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
         }
 
-        .header-links a {
-            color: var(--text-muted);
+        .header-sep {
+            color: var(--border-color);
+        }
+
+        .header-badges a {
+            color: var(--text-dim);
             text-decoration: none;
-            font-size: 13px;
-            transition: color 0.2s;
-            margin-left: 16px;
         }
 
-        .header-links a:hover {
+        .header-badges a:hover {
             color: var(--accent-primary);
         }
 
-        /* --- Main Layout --- */
+        /* --- Main layout --- */
         main {
             flex: 1;
-            max-width: 1400px;
+            max-width: 1160px;
             width: 100%;
             margin: 0 auto;
-            padding: 24px 32px;
+            padding: 32px 40px 48px;
             display: flex;
             flex-direction: column;
-            gap: 24px;
+            gap: 26px;
         }
 
-        /* --- Search & Setup Section --- */
-        .card {
-            background: var(--bg-card);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: 24px;
-            transition: border-color 0.2s;
-        }
-
-        .card:hover {
-            border-color: rgba(255, 255, 255, 0.12);
+        /* --- Topic & controls --- */
+        .topic-section {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
         }
 
         .search-box {
             display: flex;
-            gap: 12px;
-            margin-bottom: 16px;
+            align-items: center;
+            gap: 16px;
         }
 
         .input-group {
             flex: 1;
-            position: relative;
         }
 
         .input-group input {
             width: 100%;
-            padding: 14px 20px;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
+            border: none;
+            border-bottom: 1px solid var(--border-color);
+            background: transparent;
+            padding: 6px 0 10px;
+            font-family: 'Newsreader', serif;
+            font-style: italic;
+            font-size: 17px;
             color: var(--text-main);
-            font-size: 15px;
             outline: none;
-            transition: all 0.2s;
+            transition: border-color 0.2s;
+        }
+
+        .input-group input::placeholder {
+            color: var(--text-dim);
         }
 
         .input-group input:focus {
-            border-color: var(--border-focus);
-            box-shadow: 0 0 15px rgba(99, 102, 241, 0.2);
-        }
-
-        .btn {
-            padding: 14px 24px;
-            border-radius: var(--radius-md);
-            font-size: 14px;
-            font-weight: 600;
-            border: none;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
+            border-color: var(--accent-primary);
         }
 
         .btn-primary {
-            background: var(--accent-gradient);
-            color: #ffffff;
-            box-shadow: var(--shadow-glow);
+            font-family: 'Public Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--accent-primary);
+            background: transparent;
+            border: 1px solid var(--accent-primary);
+            border-radius: var(--radius-sm);
+            padding: 12px 22px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s, color 0.2s;
         }
 
-        .btn-primary:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+        .btn-primary:hover:not(:disabled) {
+            background: var(--accent-primary);
+            color: var(--panel);
         }
 
         .btn-primary:disabled {
-            opacity: 0.6;
+            opacity: 0.4;
             cursor: not-allowed;
-            transform: none;
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.06);
-            color: var(--text-main);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .btn-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
-        }
-
-        .btn-success:hover {
-            box-shadow: 0 0 25px rgba(16, 185, 129, 0.5);
-        }
-
-        .btn-warning {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            color: white;
-            box-shadow: 0 0 15px rgba(245, 158, 11, 0.3);
-        }
-
-        .btn-warning:hover {
-            box-shadow: 0 0 25px rgba(245, 158, 11, 0.5);
         }
 
         .quick-topics {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 14px;
             flex-wrap: wrap;
         }
 
-        .quick-topics span {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-right: 4px;
+        .quick-topics-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
         }
 
         .topic-pill {
-            font-family: inherit;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--border-color);
+            font-family: 'Newsreader', serif;
+            font-style: italic;
+            font-size: 13px;
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--border-color);
             color: var(--text-muted);
             cursor: pointer;
-            transition: all 0.2s;
+            padding: 0 0 2px;
+            transition: color 0.2s, border-color 0.2s;
         }
 
         .topic-pill:hover {
-            background: rgba(99, 102, 241, 0.15);
-            border-color: var(--accent-primary);
-            color: var(--text-main);
-        }
-
-        /* --- Pipeline Workflow Tracker --- */
-        .pipeline-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: relative;
-            padding: 10px 0;
-        }
-
-        .pipeline-progress-bar {
-            position: absolute;
-            top: 50%;
-            left: 5%;
-            right: 5%;
-            height: 3px;
-            background: var(--border-color);
-            z-index: 1;
-            transform: translateY(-50%);
-        }
-
-        .pipeline-progress-fill {
-            height: 100%;
-            width: 0%;
-            background: var(--accent-gradient);
-            transition: width 0.4s ease;
-        }
-
-        .pipeline-step {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 8px;
-            width: 100px;
-        }
-
-        .step-node {
-            width: 44px;
-            height: 44px;
-            border-radius: 50%;
-            background: var(--bg-dark);
-            border: 2px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            color: var(--text-dim);
-            transition: all 0.3s;
-        }
-
-        .pipeline-step.active .step-node {
-            border-color: var(--accent-primary);
             color: var(--accent-primary);
-            box-shadow: 0 0 20px rgba(99, 102, 241, 0.5);
-            background: rgba(99, 102, 241, 0.1);
-            animation: pulse-node 1.5s infinite;
+            border-color: var(--accent-primary);
         }
 
-        .pipeline-step.completed .step-node {
-            border-color: var(--accent-success);
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--accent-success);
+        .lookup-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border-color);
         }
 
-        .pipeline-step.awaiting .step-node {
-            border-color: var(--accent-warning);
-            background: rgba(245, 158, 11, 0.15);
-            color: var(--accent-warning);
-            animation: pulse-warning 1.5s infinite;
+        .lookup-bar input {
+            flex: 1;
+            border: none;
+            border-bottom: 1px solid var(--border-color);
+            background: transparent;
+            padding: 4px 0;
+            font-size: 13px;
+            color: var(--text-main);
+            outline: none;
         }
 
-        @keyframes pulse-node {
-            0% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.3); }
-            50% { box-shadow: 0 0 25px rgba(99, 102, 241, 0.8); }
-            100% { box-shadow: 0 0 10px rgba(99, 102, 241, 0.3); }
+        .lookup-bar input:focus {
+            border-color: var(--accent-primary);
         }
 
-        @keyframes pulse-warning {
-            0% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
-            50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.8); }
-            100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+        .btn-text {
+            font-family: 'Public Sans', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--text-muted);
+            color: var(--text-muted);
+            padding: 6px 2px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .btn-text:hover {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .btn-text-accent {
+            color: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        /* --- Pipeline strip --- */
+        .pipeline-strip {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            overflow-x: auto;
+            padding: 4px 0;
         }
 
         .step-label {
-            font-size: 12px;
-            font-weight: 500;
             color: var(--text-dim);
-            text-align: center;
+            white-space: nowrap;
+            transition: color 0.2s;
         }
 
-        .pipeline-step.active .step-label {
+        .step-label.done {
             color: var(--text-main);
+        }
+
+        .step-label.active {
+            color: var(--accent-primary);
             font-weight: 600;
         }
 
-        /* --- Human-in-the-Loop Review Banner --- */
+        .step-label.awaiting {
+            color: var(--accent-primary);
+            font-weight: 600;
+            animation: pulse-text 1.6s infinite;
+        }
+
+        @keyframes pulse-text {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .step-segment {
+            width: 44px;
+            height: 1px;
+            background: var(--border-color);
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+
+        .step-segment.filled {
+            background: var(--accent-primary);
+        }
+
+        /* --- Human-in-the-loop review banner --- */
         .review-banner {
             display: none;
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(217, 119, 6, 0.06) 100%);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            border-radius: var(--radius-lg);
+            border: 1px solid var(--accent-primary);
+            background: var(--accent-primary-soft);
+            border-radius: var(--radius-sm);
             padding: 20px 24px;
-            animation: slideDown 0.3s ease;
+            animation: slideDown 0.25s ease;
         }
 
         @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
+            from { opacity: 0; transform: translateY(-8px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         .review-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
+            align-items: baseline;
+            margin-bottom: 10px;
         }
 
         .review-title {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-weight: 600;
-            color: var(--accent-warning);
+            font-family: 'Newsreader', serif;
+            font-style: italic;
+            font-size: 17px;
+            color: var(--accent-primary);
+        }
+
+        .revision-badge {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+        }
+
+        .review-copy {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+            line-height: 1.5;
         }
 
         .review-textarea {
             width: 100%;
-            padding: 12px 16px;
-            background: var(--bg-input);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            border-radius: var(--radius-md);
+            border: none;
+            border-bottom: 1px solid var(--border-color);
+            background: transparent;
+            font-family: 'Public Sans', sans-serif;
+            font-size: 13px;
+            font-style: italic;
             color: var(--text-main);
-            font-size: 14px;
-            font-family: inherit;
             resize: vertical;
-            min-height: 80px;
+            min-height: 48px;
             outline: none;
+            padding: 4px 0 8px;
             margin-bottom: 16px;
         }
 
+        .review-textarea::placeholder {
+            color: var(--text-dim);
+        }
+
         .review-textarea:focus {
-            border-color: var(--accent-warning);
-            box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+            border-color: var(--accent-primary);
         }
 
         .review-actions {
             display: flex;
-            gap: 12px;
+            gap: 20px;
             justify-content: flex-end;
         }
 
-        /* --- Report Container & Details --- */
+        /* --- Report & sidebar workspace --- */
         .workspace-grid {
             display: grid;
-            grid-template-columns: 1fr 340px;
-            gap: 24px;
+            grid-template-columns: 1fr 260px;
+            gap: 40px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 22px;
         }
 
         @media (max-width: 1024px) {
@@ -465,116 +419,108 @@
         .report-card {
             display: flex;
             flex-direction: column;
-            min-height: 500px;
+            gap: 12px;
+            min-height: 420px;
         }
 
         .report-header {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--border-color);
-            margin-bottom: 20px;
+            align-items: baseline;
+            gap: 16px;
         }
 
         .report-title-area h2 {
-            font-size: 16px;
-            font-weight: 600;
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+            font-size: 24px;
+            letter-spacing: -0.01em;
+            line-height: 1.2;
         }
 
         .report-tabs {
             display: flex;
-            gap: 8px;
+            gap: 14px;
+            flex-shrink: 0;
         }
 
         .tab-btn {
-            font-family: inherit;
-            padding: 6px 14px;
-            border-radius: var(--radius-sm);
-            font-size: 13px;
-            background: transparent;
-            border: 1px solid transparent;
-            color: var(--text-muted);
+            font-family: 'Public Sans', sans-serif;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            background: none;
+            border: none;
+            border-bottom: 1px solid transparent;
+            color: var(--text-dim);
             cursor: pointer;
-            transition: all 0.2s;
+            padding: 2px 0;
         }
 
         .tab-btn.active {
-            background: rgba(255, 255, 255, 0.08);
             color: var(--text-main);
-            border-color: var(--border-color);
+            border-bottom-color: var(--text-main);
         }
 
         .report-body {
-            flex: 1;
             font-size: 15px;
-            line-height: 1.7;
-            color: #cbd5e1;
+            line-height: 1.75;
+            color: var(--text-muted);
         }
 
-        /* Markdown Styling inside report-body */
+        /* Markdown styling inside report-body */
         .report-body h1, .report-body h2, .report-body h3 {
-            color: #f8fafc;
-            margin-top: 1.5em;
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+            color: var(--text-main);
+            margin-top: 1.4em;
             margin-bottom: 0.5em;
-            font-weight: 600;
         }
 
-        .report-body h1 { font-size: 22px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
-        .report-body h2 { font-size: 18px; color: var(--accent-primary); }
-        .report-body h3 { font-size: 15px; }
+        .report-body h1 { font-size: 26px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; }
+        .report-body h2 { font-size: 20px; }
+        .report-body h3 { font-size: 16px; }
 
         .report-body p { margin-bottom: 1em; }
-        
+
         .report-body ul, .report-body ol {
-            padding-left: 24px;
+            padding-left: 22px;
             margin-bottom: 1em;
         }
 
         .report-body li { margin-bottom: 6px; }
 
         .report-body a {
-            color: var(--accent-info);
-            text-decoration: none;
-            background: rgba(6, 182, 212, 0.1);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 13px;
-            word-break: break-all;
-        }
-
-        .report-body a:hover {
+            color: var(--accent-primary);
             text-decoration: underline;
-            background: rgba(6, 182, 212, 0.2);
+            text-underline-offset: 2px;
         }
 
         .report-body blockquote {
-            border-left: 4px solid var(--accent-primary);
+            border-left: 3px solid var(--accent-primary);
             padding-left: 16px;
             color: var(--text-muted);
             font-style: italic;
             margin: 1em 0;
-            background: rgba(99, 102, 241, 0.05);
-            padding-top: 8px;
-            padding-bottom: 8px;
-            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
         }
 
         .report-body code {
             font-family: 'JetBrains Mono', monospace;
-            background: #1e293b;
-            padding: 2px 6px;
-            border-radius: 4px;
+            background: var(--accent-primary-soft);
+            padding: 2px 5px;
+            border-radius: 3px;
             font-size: 13px;
-            color: #f472b6;
+            color: var(--accent-primary);
         }
 
         .report-body pre code {
             display: block;
-            padding: 16px;
+            padding: 14px;
             overflow-x: auto;
-            color: #e2e8f0;
             line-height: 1.5;
+            background: var(--panel);
+            border: 1px solid var(--border-color);
         }
 
         .raw-text {
@@ -582,172 +528,147 @@
             font-size: 13px;
             white-space: pre-wrap;
             color: var(--text-muted);
-            background: var(--bg-input);
+            background: var(--panel);
+            border: 1px solid var(--border-color);
             padding: 16px;
-            border-radius: var(--radius-md);
             display: none;
         }
 
-        /* --- Metadata & Sidebar Details --- */
+        /* --- Sidebar --- */
         .sidebar-card {
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 26px;
         }
 
         .meta-section h3 {
-            font-size: 13px;
+            font-size: 11px;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--text-muted);
-            margin-bottom: 12px;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 6px;
+            margin-bottom: 10px;
         }
 
         .subquery-tag {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-sm);
-            font-size: 12px;
-            color: var(--text-main);
-            margin-bottom: 6px;
-            margin-right: 6px;
+            font-size: 13px;
+            color: var(--text-muted);
+            padding: 4px 0;
+            line-height: 1.5;
         }
 
         .source-item {
-            padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            margin-bottom: 8px;
-            transition: all 0.2s;
+            padding: 6px 0 10px;
+            border-bottom: 1px dotted var(--border-color);
+            margin-bottom: 4px;
         }
 
-        .source-item:hover {
-            background: rgba(99, 102, 241, 0.08);
-            border-color: rgba(99, 102, 241, 0.3);
+        .source-item:last-child {
+            border-bottom: none;
         }
 
         .source-title {
             font-size: 13px;
             font-weight: 500;
             color: var(--text-main);
-            margin-bottom: 4px;
-            line-height: 1.3;
+            margin-bottom: 3px;
+            line-height: 1.35;
         }
 
         .source-url {
             font-size: 11px;
-            color: var(--accent-info);
+            color: var(--accent-primary);
             text-decoration: none;
             word-break: break-all;
         }
 
-        /* --- Loading Overlay --- */
+        .source-url:hover {
+            text-decoration: underline;
+        }
+
+        /* --- Loading / empty / error states --- */
         .loading-state {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 80px 20px;
-            gap: 16px;
+            padding: 70px 20px;
+            gap: 14px;
             color: var(--text-muted);
+            text-align: center;
         }
 
         .spinner {
-            width: 48px;
-            height: 48px;
-            border: 4px solid rgba(99, 102, 241, 0.1);
+            width: 26px;
+            height: 26px;
+            border: 2px solid var(--border-color);
             border-top-color: var(--accent-primary);
             border-radius: 50%;
-            animation: spin 1s infinite linear;
+            animation: spin 0.9s infinite linear;
         }
 
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
 
-        /* --- Empty State --- */
         .empty-state {
             text-align: center;
-            padding: 100px 20px;
+            padding: 90px 20px;
             color: var(--text-dim);
         }
 
-        .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
+        .empty-state svg {
+            margin-bottom: 14px;
             opacity: 0.6;
         }
 
-        /* --- Thread Lookup Modal / Bar --- */
-        .lookup-bar {
-            display: flex;
-            gap: 8px;
-            margin-top: 12px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .lookup-bar input {
-            flex: 1;
-            padding: 8px 12px;
-            background: var(--bg-input);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-sm);
+        .empty-state h3 {
+            font-family: 'Newsreader', serif;
+            font-weight: 500;
+            font-size: 19px;
             color: var(--text-main);
-            font-size: 12px;
+            margin-bottom: 6px;
         }
 
-        /* --- Mobile: header, search box, and the 5-node pipeline tracker
-           have no wrap/scroll fallback above this point, so on a phone
-           viewport they'd overflow or crush illegibly without this. --- */
+        .empty-state p {
+            font-size: 13px;
+            line-height: 1.6;
+            max-width: 340px;
+            margin: 0 auto;
+        }
+
+        /* --- Mobile: header, topic row, and the pipeline strip have no
+           wrap/scroll fallback above this point, so on a phone viewport
+           they'd overflow without this. --- */
         @media (max-width: 640px) {
             header {
                 flex-wrap: wrap;
-                gap: 12px;
-                padding: 12px 16px;
-            }
-
-            .header-badges {
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-
-            .header-links a:first-child {
-                margin-left: 0;
+                gap: 10px;
+                padding: 14px 18px;
             }
 
             main {
-                padding: 16px;
+                padding: 20px 18px 32px;
             }
 
             .search-box {
                 flex-direction: column;
+                align-items: stretch;
             }
 
-            .pipeline-container {
-                overflow-x: auto;
-                justify-content: flex-start;
-                gap: 20px;
-                padding: 10px 4px;
+            .pipeline-strip {
+                gap: 10px;
             }
 
-            .pipeline-progress-bar {
-                left: 26px;
-                right: 26px;
+            .step-segment {
+                width: 22px;
             }
 
-            .pipeline-step {
-                width: 72px;
-                flex: 0 0 auto;
-            }
-
-            .step-label {
-                font-size: 11px;
+            .review-actions {
+                flex-wrap: wrap;
+                gap: 12px;
             }
         }
     </style>
@@ -757,159 +678,123 @@
     <!-- Header -->
     <header>
         <div class="brand">
-            <div class="brand-icon">🤖</div>
+            <svg class="brand-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
+                <circle cx="5" cy="6" r="2.3" stroke="var(--accent-primary)" stroke-width="1.6"></circle>
+                <circle cx="19" cy="6" r="2.3" stroke="var(--accent-primary)" stroke-width="1.6"></circle>
+                <circle cx="12" cy="18" r="2.3" stroke="var(--accent-primary)" stroke-width="1.6"></circle>
+                <path d="M7 7.1L17 7.1M6.4 8.1L10.8 16M17.6 8.1L13.2 16" stroke="var(--accent-primary)" stroke-width="1.4"></path>
+            </svg>
             <div class="brand-text">
-                <h1>Multi-Agent Research Studio</h1>
-                <p>LangGraph Agent Orchestration & Human-in-the-Loop</p>
+                <h1>The Research Desk</h1>
             </div>
         </div>
 
         <div class="header-badges">
-            <div class="badge">
-                <span class="badge-dot pulse" id="providerDot"></span>
-                <span id="providerText">Provider: checking...</span>
-            </div>
-            <div class="badge">
-                <span style="color: #a855f7;">⚡</span>
-                <span>LangSmith Tracing</span>
-            </div>
-            <div class="header-links">
-                <a href="/docs" target="_blank">Swagger API</a>
-                <a href="/metrics" target="_blank">Metrics</a>
-                <a href="/health" target="_blank">Health</a>
-            </div>
+            <span class="badge-dot pulse" id="providerDot"></span>
+            <span id="providerText">Provider: checking...</span>
+            <span class="header-sep">/</span>
+            <span>LangSmith Tracing</span>
+            <span class="header-sep">/</span>
+            <a href="/docs" target="_blank">Swagger</a>
+            <a href="/metrics" target="_blank">Metrics</a>
+            <a href="/health" target="_blank">Health</a>
         </div>
     </header>
 
     <!-- Main Content -->
     <main>
-        <!-- Search & Control Card -->
-        <div class="card">
+        <!-- Topic input, quick topics, thread lookup -->
+        <div class="topic-section">
             <div class="search-box">
                 <div class="input-group">
-                    <input type="text" id="topicInput" maxlength="500" placeholder="Enter research topic (e.g. Current state of small modular nuclear reactors)..." autocomplete="off">
+                    <input type="text" id="topicInput" maxlength="500" placeholder="Enter a research topic (e.g. current state of small modular nuclear reactors)&hellip;" autocomplete="off">
                 </div>
-                <button class="btn btn-primary" id="startBtn" onclick="startResearch()">
-                    <span>🚀 Launch Research</span>
-                </button>
+                <button class="btn-primary" id="startBtn" onclick="startResearch()">Launch Research</button>
             </div>
 
             <div class="quick-topics">
-                <span>Try Example Topics:</span>
-                <button type="button" class="topic-pill" onclick="setTopic('Current state of small modular nuclear reactors')">⚛️ Nuclear SMRs</button>
-                <button type="button" class="topic-pill" onclick="setTopic('Agentic AI orchestration patterns in 2026')">🤖 Agentic AI 2026</button>
-                <button type="button" class="topic-pill" onclick="setTopic('Quantum cryptography standards and enterprise security')">🛡️ Quantum Cryptography</button>
-                <button type="button" class="topic-pill" onclick="setTopic('Groq LPU vs NVIDIA GPU latency and throughput benchmarks')">⚡ Groq LPU Benchmarks</button>
+                <span class="quick-topics-label">Try&#8201;:</span>
+                <button type="button" class="topic-pill" onclick="setTopic('Current state of small modular nuclear reactors')">Small modular nuclear reactors</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Agentic AI orchestration patterns in 2026')">Agentic AI orchestration in 2026</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Quantum cryptography standards and enterprise security')">Quantum cryptography standards</button>
+                <button type="button" class="topic-pill" onclick="setTopic('Groq LPU vs NVIDIA GPU latency and throughput benchmarks')">Groq LPU vs. GPU benchmarks</button>
             </div>
 
             <div class="lookup-bar">
-                <input type="text" id="threadIdInput" placeholder="Or enter existing Thread ID to resume/view status...">
-                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 12px;" onclick="loadThread()">Load Thread</button>
+                <input type="text" id="threadIdInput" placeholder="Or enter an existing Thread ID to resume / view status&hellip;">
+                <button class="btn-text" onclick="loadThread()">Load Thread</button>
             </div>
         </div>
 
-        <!-- Multi-Agent Pipeline Tracker -->
-        <div class="card" style="padding: 20px 32px;">
-            <div class="pipeline-container">
-                <div class="pipeline-progress-bar">
-                    <div class="pipeline-progress-fill" id="progressFill"></div>
-                </div>
-
-                <div class="pipeline-step" id="step-researcher">
-                    <div class="step-node">🔍</div>
-                    <div class="step-label">Researcher</div>
-                </div>
-
-                <div class="pipeline-step" id="step-analyst">
-                    <div class="step-node">📊</div>
-                    <div class="step-label">Analyst</div>
-                </div>
-
-                <div class="pipeline-step" id="step-writer">
-                    <div class="step-node">✍️</div>
-                    <div class="step-label">Writer</div>
-                </div>
-
-                <div class="pipeline-step" id="step-review">
-                    <div class="step-node">🧑‍⚖️</div>
-                    <div class="step-label">Human Review</div>
-                </div>
-
-                <div class="pipeline-step" id="step-finalize">
-                    <div class="step-node">🏁</div>
-                    <div class="step-label">Finalize</div>
-                </div>
-            </div>
+        <!-- Multi-agent pipeline tracker -->
+        <div class="pipeline-strip" id="pipelineStrip">
+            <span class="step-label" id="step-researcher">I. Researcher</span>
+            <span class="step-segment" id="seg-1"></span>
+            <span class="step-label" id="step-analyst">II. Analyst</span>
+            <span class="step-segment" id="seg-2"></span>
+            <span class="step-label" id="step-writer">III. Writer</span>
+            <span class="step-segment" id="seg-3"></span>
+            <span class="step-label" id="step-review">IV. Review</span>
+            <span class="step-segment" id="seg-4"></span>
+            <span class="step-label" id="step-finalize">V. Finalize</span>
         </div>
 
-        <!-- Human-in-the-Loop Review Banner -->
+        <!-- Human-in-the-loop review banner -->
         <div class="review-banner" id="reviewBanner" role="alert">
             <div class="review-header">
-                <div class="review-title">
-                    <span style="font-size: 20px;">⚠️</span>
-                    <span>Human Review Required — Inspect Draft & Submit Approval / Revision</span>
-                </div>
-                <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: var(--accent-warning); border-color: rgba(245, 158, 11, 0.4);" id="revisionBadge">Revision 0 of 3</span>
+                <div class="review-title">Awaiting your review</div>
+                <span class="revision-badge" id="revisionBadge">Revision 0 of 3</span>
             </div>
-            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
-                The LangGraph agentic workflow is currently <strong>paused in SQLite state storage</strong>. Approve to finalize the report, or request revisions below.
-            </p>
-            <textarea class="review-textarea" id="feedbackInput" placeholder="Optional revision feedback (e.g. 'Add more detail on cost per MWh and supply chain risks')..."></textarea>
+            <p class="review-copy">The agent pipeline is paused, persisted in SQLite. Approve to finalize the report, or request changes below.</p>
+            <textarea class="review-textarea" id="feedbackInput" placeholder="Optional feedback (e.g. &lsquo;add more detail on cost per MWh and supply chain risks&rsquo;)&hellip;"></textarea>
             <div class="review-actions">
-                <button class="btn btn-warning" onclick="submitReview(false)">
-                    <span>🔄 Request Revision</span>
-                </button>
-                <button class="btn btn-success" onclick="submitReview(true)">
-                    <span>✅ Approve & Finalize Report</span>
-                </button>
+                <button class="btn-text" onclick="submitReview(false)">Request revision</button>
+                <button class="btn-text btn-text-accent" onclick="submitReview(true)">Approve &amp; finalize</button>
             </div>
         </div>
 
-        <!-- Workspace Grid: Report + Metadata Sidebar -->
+        <!-- Workspace: report + metadata sidebar -->
         <div class="workspace-grid">
-            <!-- Left: Report Card -->
-            <div class="card report-card">
+            <!-- Left: report -->
+            <div class="report-card">
                 <div class="report-header">
                     <div class="report-title-area">
                         <h2 id="reportHeadline">Research Workspace</h2>
                     </div>
                     <div class="report-tabs">
-                        <button class="tab-btn active" id="tabRendered" onclick="switchTab('rendered')">Rendered Report</button>
-                        <button class="tab-btn" id="tabRaw" onclick="switchTab('raw')">Raw Markdown</button>
+                        <button class="tab-btn active" id="tabRendered" onclick="switchTab('rendered')">Rendered</button>
+                        <button class="tab-btn" id="tabRaw" onclick="switchTab('raw')">Raw</button>
                     </div>
                 </div>
 
-                <!-- Report Content Display -->
+                <!-- Report content display -->
                 <div id="reportDisplay">
                     <div class="empty-state">
-                        <div class="empty-state-icon">🔬</div>
-                        <h3>No Active Research Task</h3>
-                        <p style="margin-top: 6px;">Enter a topic above or select a quick example to launch the 5-node agent state machine.</p>
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                            <circle cx="11" cy="11" r="6.5" stroke="var(--text-dim)" stroke-width="1.4"></circle>
+                            <path d="M15.8 15.8L20 20" stroke="var(--text-dim)" stroke-width="1.4" stroke-linecap="round"></path>
+                        </svg>
+                        <h3>No active research</h3>
+                        <p>Enter a topic above, or choose an example, to begin the five-stage agent pipeline.</p>
                     </div>
                 </div>
-                
+
                 <div class="raw-text" id="rawDisplay"></div>
             </div>
 
-            <!-- Right Sidebar: Metadata & Sources -->
+            <!-- Right: sub-queries and sources -->
             <div class="sidebar-card">
-                <!-- Sub-Queries Card -->
-                <div class="card">
-                    <div class="meta-section">
-                        <h3>Research Sub-Queries</h3>
-                        <div id="subqueriesContainer">
-                            <p style="font-size: 13px; color: var(--text-dim);">No queries generated yet.</p>
-                        </div>
+                <div class="meta-section">
+                    <h3>Research Sub-Queries</h3>
+                    <div id="subqueriesContainer">
+                        <p style="font-size: 13px; color: var(--text-dim);">No queries generated yet.</p>
                     </div>
                 </div>
 
-                <!-- Sources & Web References -->
-                <div class="card" style="flex: 1;">
-                    <div class="meta-section">
-                        <h3>Cited Sources & Links</h3>
-                        <div id="sourcesContainer">
-                            <p style="font-size: 13px; color: var(--text-dim);">No citations extracted yet.</p>
-                        </div>
+                <div class="meta-section">
+                    <h3>Cited Sources</h3>
+                    <div id="sourcesContainer">
+                        <p style="font-size: 13px; color: var(--text-dim);">No citations extracted yet.</p>
                     </div>
                 </div>
             </div>
@@ -998,9 +883,9 @@
             box.style.color = 'var(--accent-error)';
             box.setAttribute('role', 'alert');
             const icon = document.createElement('div');
-            icon.className = 'empty-state-icon';
-            icon.textContent = '\u26a0\ufe0f';
+            icon.innerHTML = '<svg width="30" height="30" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"></circle><path d="M12 7.5V13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path><circle cx="12" cy="16.3" r="0.9" fill="currentColor"></circle></svg>';
             const h = document.createElement('h3');
+            h.style.color = 'var(--accent-error)';
             h.textContent = 'Request Failed';
             const msg = document.createElement('p');
             msg.textContent = message;
@@ -1072,47 +957,52 @@
             }
         }
 
+        // The tracker is five step labels with a short connector segment in
+        // each gap between them (never a bar running under the labels).
+        // doneThrough labels get .done, one label gets .active or .awaiting,
+        // and segments up to the current point get .filled.
         function updatePipelineUI(status, awaitingReview, revisionCount, running) {
-            const steps = {
-                'researcher': document.getElementById('step-researcher'),
-                'analyst': document.getElementById('step-analyst'),
-                'writer': document.getElementById('step-writer'),
-                'review': document.getElementById('step-review'),
-                'finalize': document.getElementById('step-finalize'),
-            };
-            const progressFill = document.getElementById('progressFill');
-            const done = (...names) => names.forEach(n => steps[n].classList.add('completed'));
+            const labels = ['researcher', 'analyst', 'writer', 'review', 'finalize'].map(
+                (n) => document.getElementById('step-' + n)
+            );
+            const segments = [1, 2, 3, 4].map((n) => document.getElementById('seg-' + n));
 
-            Object.values(steps).forEach(s => { s.className = 'pipeline-step'; });
+            labels.forEach((el) => { el.className = 'step-label'; });
+            segments.forEach((el) => { el.className = 'step-segment'; });
+
+            let doneThrough = 0;
+            let activeIndex = -1;
+            let awaitingIndex = -1;
 
             if (status === 'started') {
-                steps.researcher.classList.add('active');
-                progressFill.style.width = '15%';
+                activeIndex = 0;
             } else if (status === 'researched') {
-                done('researcher');
-                steps.analyst.classList.add('active');
-                progressFill.style.width = '40%';
+                doneThrough = 1;
+                activeIndex = 1;
             } else if (status === 'analyzed' || (running && (status === 'revision_requested' || status === 'drafted'))) {
                 // The second condition is a revision in flight: the writer is working again.
-                done('researcher', 'analyst');
-                steps.writer.classList.add('active');
-                progressFill.style.width = '65%';
+                doneThrough = 2;
+                activeIndex = 2;
             } else if (running && status === 'approved') {
-                done('researcher', 'analyst', 'writer', 'review');
-                steps.finalize.classList.add('active');
-                progressFill.style.width = '92%';
+                doneThrough = 4;
+                activeIndex = 4;
             } else if (awaitingReview || status === 'drafted' || status === 'revision_requested') {
-                done('researcher', 'analyst', 'writer');
-                steps.review.classList.add('awaiting');
-                progressFill.style.width = '80%';
+                doneThrough = 3;
+                awaitingIndex = 3;
             } else if (status === 'finalized' || status === 'approved') {
-                done('researcher', 'analyst', 'writer', 'review', 'finalize');
-                progressFill.style.width = '100%';
+                doneThrough = 5;
             } else {
-                // Unknown status: reset rather than leaving a stale fill behind.
-                progressFill.style.width = '0%';
+                // Unknown status: leave everything reset rather than a stale state.
                 console.warn('Unknown pipeline status:', status);
+                return;
             }
+
+            for (let i = 0; i < doneThrough; i++) labels[i].classList.add('done');
+            if (activeIndex >= 0) labels[activeIndex].classList.add('active');
+            if (awaitingIndex >= 0) labels[awaitingIndex].classList.add('awaiting');
+
+            const filledSegments = Math.min(awaitingIndex >= 0 ? awaitingIndex : doneThrough, segments.length);
+            for (let i = 0; i < filledSegments; i++) segments[i].classList.add('filled');
         }
 
         async function startResearch() {
@@ -1229,8 +1119,8 @@
             // Render Sub-Queries
             const subqueriesContainer = document.getElementById('subqueriesContainer');
             if (data.sub_queries && data.sub_queries.length > 0) {
-                subqueriesContainer.innerHTML = data.sub_queries.map(q => 
-                    `<div class="subquery-tag">🔍 ${escapeHtml(q)}</div>`
+                subqueriesContainer.innerHTML = data.sub_queries.map(q =>
+                    `<div class="subquery-tag">${escapeHtml(q)}</div>`
                 ).join('');
             } else {
                 subqueriesContainer.innerHTML = `<p style="font-size: 13px; color: var(--text-dim);">No sub-queries generated.</p>`;
