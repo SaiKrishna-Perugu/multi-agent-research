@@ -1041,12 +1041,8 @@
                 done('researcher');
                 steps.analyst.classList.add('active');
                 progressFill.style.width = '40%';
-            } else if (status === 'analyzed') {
-                done('researcher', 'analyst');
-                steps.writer.classList.add('active');
-                progressFill.style.width = '65%';
-            } else if (running && (status === 'revision_requested' || status === 'drafted')) {
-                // A revision is in flight: the writer is working again.
+            } else if (status === 'analyzed' || (running && (status === 'revision_requested' || status === 'drafted'))) {
+                // The second condition is a revision in flight: the writer is working again.
                 done('researcher', 'analyst');
                 steps.writer.classList.add('active');
                 progressFill.style.width = '65%';
@@ -1106,6 +1102,10 @@
             const threadId = document.getElementById('threadIdInput').value.trim();
             if (!threadId) {
                 alert('Please enter a Thread ID.');
+                return;
+            }
+            if (isProcessing) {
+                alert('A report is currently running. Wait for it to finish before loading another thread.');
                 return;
             }
 

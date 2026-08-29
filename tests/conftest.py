@@ -16,6 +16,18 @@ from app import config
 config.DB_PATH = ":memory:"
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    # app.main.app (and its slowapi Limiter) is a module-level singleton, so
+    # its in-memory request counts otherwise carry over between tests. Without
+    # this, a test earlier in the file can tip a later, unrelated test over
+    # RATE_LIMIT and fail it with a 429.
+    from app.main import limiter
+
+    limiter.reset()
+    yield
+
+
 @pytest.fixture
 def fake_agents():
     """Deterministic replacements for the three agent nodes. draft_counter
@@ -53,9 +65,10 @@ def mocked_client(fake_agents):
 
 @pytest.fixture
 def failing_researcher_client():
-    """A variant where the researcher node itself raises -- used to test
-    that /research surfaces a 500 with a logged error instead of crashing
-    the process or leaking a stack trace to the caller."""
+    """A variant where the researcher node itself raises -- used to test that
+    the background run logs the error and never crashes the process, and that
+    the failure surfaces via the polled GET's `error` field rather than a 500
+    on the original POST (which returns 202 before the graph ever runs)."""
     def broken_researcher(state):
         raise RuntimeError("simulated researcher failure")
 

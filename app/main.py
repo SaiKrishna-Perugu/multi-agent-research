@@ -113,8 +113,16 @@ def _job_start(thread_id: str) -> None:
 
 
 def _job_finish(thread_id: str, error: str = "") -> None:
+    # A clean finish needs no entry -- _job_state's default for a missing
+    # thread_id ({"running": False, "error": ""}) is identical, and dropping it
+    # keeps _jobs bounded by in-flight/errored threads instead of growing by
+    # one entry per report for the life of the process. An error is kept so
+    # the polled `error` field has something to surface.
     with _jobs_lock:
-        _jobs[thread_id] = {"running": False, "error": error}
+        if error:
+            _jobs[thread_id] = {"running": False, "error": error}
+        else:
+            _jobs.pop(thread_id, None)
 
 
 def _job_state(thread_id: str) -> dict:
@@ -254,9 +262,11 @@ async def get_research(request: Request, thread_id: str) -> ResearchResponse:
             )
         raise HTTPException(status_code=404, detail=f"No research thread found for id {thread_id}")
 
-    # snapshot.next is also non-empty mid-run, so "awaiting review" needs both:
-    # the graph is suspended AND no run is in flight.
-    interrupted = bool(snapshot.next) and not job["running"]
+    # snapshot.next is also non-empty for a thread that hasn't run its first
+    # node yet (e.g. it failed on "researcher" before ever reaching an
+    # interrupt), so "awaiting review" needs all three: the graph is
+    # suspended, no run is in flight, and the last run didn't error out.
+    interrupted = bool(snapshot.next) and not job["running"] and not job["error"]
     return _state_to_response(
         thread_id, snapshot.values, interrupted,
         running=job["running"], error=job["error"],
@@ -283,8 +293,11 @@ async def review_research(
     job = _job_state(thread_id)
     if job["running"]:
         raise HTTPException(status_code=409, detail="This report is still being generated. Wait for it to finish.")
-    if not snapshot.next:
-        raise HTTPException(status_code=400, detail="This report is not awaiting review (already finalized, or not yet started).")
+    if not snapshot.next or job["error"]:
+        # job["error"] means the last run blew up before reaching an interrupt
+        # (or during a revision) -- snapshot.next can still be non-empty in
+        # that case, but there is no live interrupt() waiting for this resume.
+        raise HTTPException(status_code=400, detail="This report is not awaiting review (already finalized, failed, or not yet started).")
 
     if not body.approved:
         metrics.record_revision_requested()

@@ -46,6 +46,9 @@ A FastAPI service wrapping a LangGraph state machine. Request flow:
   `_run_graph` must never propagate; failures land in the in-process `_jobs` dict and
   surface through the polled `error` field. `_jobs` is lost on restart (same tradeoff as
   `metrics.py`) — the checkpoint itself is durable, only the running/error flag is not.
+  A thread_id is dropped from `_jobs` on a clean finish (its absence is equivalent to
+  `{"running": False, "error": ""}`), so the dict stays bounded by in-flight/errored
+  threads rather than growing by one entry per report for the process's lifetime.
 - **`app/config.py`** — every module reads settings from here, never `os.getenv` directly.
   Required keys are checked by `validate_llm_config()` / `validate_search_config()`, called
   during FastAPI's **lifespan startup** (`main.py:55-56`) and again inside `get_llm()`
@@ -86,7 +89,8 @@ single search on the raw topic, and individual Tavily query failures are swallow
 `POST /research` (**202**, returns `thread_id` immediately with `running: true`; the graph
 runs in a FastAPI `BackgroundTask` and the client polls for progress) ·
 `GET /research/{thread_id}` (poll target; `awaiting_review` requires `snapshot.next`
-non-empty **and** no run in flight, because `next` is also non-empty mid-run) ·
+non-empty, no run in flight, **and** no error on the last run — `next` is also non-empty
+mid-run and for a thread that failed before ever reaching an interrupt) ·
 `POST /research/{thread_id}/review` (**202**, `{approved, feedback}`; a revision re-runs the
 writer in the background, `409` if a run is already in flight) · `/health` · `/ready` ·
 `/metrics` · `/` serves `app/static/index.html` (the Web Studio UI), falling back to `/docs`.

@@ -137,6 +137,20 @@ def test_research_failure_surfaces_via_error_field(failing_researcher_client):
     assert "failed" in body["error"].lower()
 
 
+def test_failed_thread_is_not_reported_or_reviewable_as_awaiting_review(failing_researcher_client):
+    """A thread that fails on its very first node (before any interrupt()) still
+    has a non-empty snapshot.next, since that just reflects "researcher runs
+    next". awaiting_review must not conflate that with a real paused-for-review
+    state, and /review must refuse to resume it."""
+    r = failing_researcher_client.post("/research", json={"topic": "test"})
+    thread_id = r.json()["thread_id"]
+    body = _await_thread(failing_researcher_client, thread_id)
+    assert body["awaiting_review"] is False
+
+    r = failing_researcher_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    assert r.status_code == 400
+
+
 def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "API_KEY", "secret123")
