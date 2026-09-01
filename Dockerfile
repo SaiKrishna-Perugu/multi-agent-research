@@ -20,7 +20,19 @@ COPY . .
 # make that first write a PermissionError.
 RUN adduser --disabled-password --no-create-home appuser \
     && chown -R appuser:appuser /app
+
+# `--no-create-home` leaves $HOME=/home/appuser pointing at a directory that
+# was never created, so `uv run`'s own cache (~/.cache/uv by default) fails
+# with a permission error at container startup. Point it inside /app, which
+# is already appuser-owned.
+ENV UV_CACHE_DIR=/app/.cache/uv
+
 USER appuser
 
 EXPOSE 8080
-CMD exec uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+# --no-sync: the image already has the exact environment from the frozen,
+# no-dev build-time sync. Without this flag, `uv run` re-syncs against
+# pyproject.toml on every container start -- which includes the dev group
+# (ruff, pytest, ...), so it re-downloads and installs them at startup,
+# requiring network access production shouldn't need and slowing every boot.
+CMD exec uv run --no-sync uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
