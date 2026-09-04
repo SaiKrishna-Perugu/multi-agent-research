@@ -210,7 +210,7 @@ def _run_graph(graph, thread_id: str, payload, topic: str = "") -> None:
         logger.error(
             json.dumps({"event": "error", "thread_id": thread_id, "error": str(exc)})
         )
-        _job_finish(thread_id, "Report generation failed. Check server logs.")
+        _job_finish(thread_id, f"Report generation failed: {exc}")
         return
 
     latency_ms = (time.perf_counter() - start) * 1000

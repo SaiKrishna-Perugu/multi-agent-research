@@ -44,7 +44,7 @@ def _get_secret(env_name: str, default: str = "") -> str:
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = _get_secret("GROQ_API_KEY")
-GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")

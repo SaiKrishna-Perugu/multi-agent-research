@@ -69,7 +69,7 @@ sources."""
 
 _REVISION_SYSTEM_PROMPT = """You are revising a report draft based on \
 reviewer feedback. You have access to the topic, the structured analysis, \
-the research notes, the current draft, and the reviewer feedback. \
+the current draft, and the reviewer feedback. \
 Directly address the feedback given while preserving all accurate findings \
 that were not flagged. Return the complete revised report, not just \
 the changed portion."""
@@ -141,7 +141,7 @@ def researcher_node(state: dict) -> dict:
     results_text = "\n\n".join(
         f"Query: {r.query}\n"
         + "\n".join(
-            f"- {item['title']} [{item['url']}]: {item['content'][:1500]}"
+            f"- {item['title']} [{item['url']}]: {item['content'][:700]}"
             for item in r.results
         )
         for r in search_results
@@ -210,11 +210,12 @@ def writer_node(state: dict) -> dict:
 
     if state.get("revision_feedback"):
         # Revision pass: rewrite the existing draft based on feedback,
-        # grounded in the original analysis and research notes.
+        # grounded in the structured analysis. The structured analysis
+        # already contains all themes, quotes, and citation URLs; keeping
+        # the prompt focused ensures it stays well under provider token ceilings.
         human_content = (
             f"Topic: {state['topic']}\n\n"
             f"ANALYSIS:\n{state.get('analysis', '')}\n\n"
-            f"RESEARCH NOTES:\n{state.get('research_notes', '')}\n\n"
             f"CURRENT DRAFT:\n{state['draft']}\n\n"
             f"REVIEWER FEEDBACK:\n{state['revision_feedback']}"
         )
