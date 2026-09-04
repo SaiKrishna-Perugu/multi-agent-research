@@ -5,6 +5,11 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -29,17 +34,16 @@ jobs:
     - name: Run linting
       run: uv run ruff check .
 
-    - name: Run tests
+    - name: Run formatting check
+      run: uv run ruff format --check .
+
+    - name: Run tests with coverage
       env:
         GROQ_API_KEY: "gsk-ci-placeholder-not-real"
         TAVILY_API_KEY: "tvly-ci-placeholder-not-real"
-      run: uv run pytest tests/ -v
+      run: uv run pytest tests/ -v --cov=app --cov-report=term-missing
 
     - name: Audit dependencies for known vulnerabilities
-      # Informational for now (continue-on-error) -- turning this into a hard
-      # gate is a separate decision once there's a baseline of what it finds
-      # in the existing dependency set.
-      continue-on-error: true
       run: uv run --with pip-audit pip-audit
 
   docker:
@@ -53,10 +57,8 @@ jobs:
       run: docker build -t multi-agent-research:ci .
 
     - name: Smoke test the built image
-      # Catches exactly the class of bug a bare ruff+pytest job can't: the
-      # image failing to build, or booting into a PermissionError from the
-      # non-root user (see Dockerfile) -- neither is exercised anywhere else
-      # in this pipeline.
+      # Catches image boot failures, PermissionErrors from non-root user,
+      # and verifies that config validation and graph compilation succeed on startup.
       run: |
         docker run -d --name smoke -p 8080:8080 \
           -e GROQ_API_KEY="gsk-ci-placeholder-not-real" \
@@ -64,11 +66,11 @@ jobs:
           multi-agent-research:ci
         ok=""
         for i in $(seq 1 15); do
-          if curl -sf http://localhost:8080/health; then ok=1; break; fi
+          if curl -sf http://localhost:8080/ready; then ok=1; break; fi
           sleep 2
         done
         if [ -z "$ok" ]; then
-          echo "container did not become healthy in time"
+          echo "container did not become ready in time"
           docker logs smoke
           exit 1
         fi
@@ -76,3 +78,7 @@ jobs:
     - name: Container logs
       if: always()
       run: docker logs smoke || true
+
+    - name: Clean up smoke container
+      if: always()
+      run: docker rm -f smoke || true

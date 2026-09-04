@@ -6,6 +6,7 @@ graph during FastAPI's lifespan startup (not at module import time),
 specifically so each test's patches are correctly picked up when
 `build_graph()` runs again on every `with TestClient(app) as client:` entry.
 """
+
 from unittest.mock import patch
 
 import pytest
@@ -62,29 +63,50 @@ def fake_agents():
     draft_counter = {"n": 0}
 
     def fake_researcher(state):
+        sub_queries = ["q1", "q2"]
+        if state.get("review_action") == "research_gap":
+            sub_queries = [
+                "q1",
+                "q2",
+                f"followup: {state.get('revision_feedback', '')}",
+            ]
         return {
-            "sub_queries": ["q1", "q2"],
+            "sub_queries": sub_queries,
             "research_notes": "synthesized notes",
             "sources": [{"title": "Example Source", "url": "https://example.com"}],
             "status": "researched",
         }
 
     def fake_analyst(state):
-        return {"analysis": "## Key Themes\n...\n## Gaps & Contradictions\n...", "status": "analyzed"}
+        return {
+            "analysis": "## Key Themes\n...\n## Gaps & Contradictions\n...",
+            "status": "analyzed",
+        }
 
     def fake_writer(state):
         draft_counter["n"] += 1
-        return {"draft": f"draft v{draft_counter['n']}", "revision_feedback": "", "status": "drafted"}
+        return {
+            "draft": f"draft v{draft_counter['n']}",
+            "revision_feedback": "",
+            "status": "drafted",
+        }
 
-    return {"researcher": fake_researcher, "analyst": fake_analyst, "writer": fake_writer}
+    return {
+        "researcher": fake_researcher,
+        "analyst": fake_analyst,
+        "writer": fake_writer,
+    }
 
 
 @pytest.fixture
 def mocked_client(fake_agents):
-    with patch("app.graph.researcher_node", fake_agents["researcher"]), \
-         patch("app.graph.analyst_node", fake_agents["analyst"]), \
-         patch("app.graph.writer_node", fake_agents["writer"]):
+    with (
+        patch("app.graph.researcher_node", fake_agents["researcher"]),
+        patch("app.graph.analyst_node", fake_agents["analyst"]),
+        patch("app.graph.writer_node", fake_agents["writer"]),
+    ):
         from app.main import app
+
         with TestClient(app) as client:
             yield client
 
@@ -95,10 +117,12 @@ def failing_researcher_client():
     the background run logs the error and never crashes the process, and that
     the failure surfaces via the polled GET's `error` field rather than a 500
     on the original POST (which returns 202 before the graph ever runs)."""
+
     def broken_researcher(state):
         raise RuntimeError("simulated researcher failure")
 
     with patch("app.graph.researcher_node", broken_researcher):
         from app.main import app
+
         with TestClient(app) as client:
             yield client

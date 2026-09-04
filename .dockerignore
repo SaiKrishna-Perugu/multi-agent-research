@@ -11,4 +11,8 @@ checkpoints.sqlite*
 README.md
 tests/
 .pytest_cache/
+.ruff_cache/
+.uv-cache/
+.agents/
+.freebuff/
 *.md

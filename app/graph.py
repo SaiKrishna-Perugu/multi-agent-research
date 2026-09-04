@@ -22,6 +22,7 @@ MAX_REVISIONS bounds the review loop -- a human could otherwise request
 revisions indefinitely; after the cap, the graph force-finalizes with the
 current best draft rather than looping forever.
 """
+
 from typing import Literal, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -44,39 +45,53 @@ class ResearchState(TypedDict):
     revision_count: int
     final_report: str
     status: str
+    review_action: str
 
 
 @traceable(name="agent.human_review", run_type="chain")
 def human_review_node(state: ResearchState) -> ResearchState:
-    decision = interrupt({
-        "draft": state["draft"],
-        "revision_count": state["revision_count"],
-        "message": "Review the draft. Resume with {'approved': True} to "
-                    "finalize, or {'approved': False, 'feedback': '...'} to request changes.",
-    })
+    decision = interrupt(
+        {
+            "draft": state["draft"],
+            "revision_count": state["revision_count"],
+            "message": "Review the draft. Resume with {'approved': True} to "
+            "finalize, or {'approved': False, 'feedback': '...'} to request changes.",
+        }
+    )
     approved = bool(decision.get("approved", False))
+    action = decision.get("action", "approve" if approved else "revise")
     feedback = decision.get("feedback", "") if not approved else ""
     return {
         "revision_feedback": feedback,
         "revision_count": state["revision_count"] + (0 if approved else 1),
         "status": "approved" if approved else "revision_requested",
+        "review_action": action,
     }
 
 
-def route_after_review(state: ResearchState) -> Literal["finalize", "writer"]:
+def route_after_review(
+    state: ResearchState,
+) -> Literal["finalize", "writer", "researcher"]:
     if state["status"] == "approved":
         return "finalize"
     if state["revision_count"] > MAX_REVISIONS:
         return "finalize"  # cap reached -- force finalize with current draft
+    if state.get("review_action") == "research_gap":
+        return "researcher"
     return "writer"
 
 
 @traceable(name="agent.finalize", run_type="chain")
 def finalize_node(state: ResearchState) -> ResearchState:
     note = ""
-    if state["status"] == "revision_requested" and state["revision_count"] > MAX_REVISIONS:
-        note = (f"\n\n---\n*Note: maximum revision limit ({MAX_REVISIONS}) reached. "
-                f"This is the most recent draft; further review is recommended.*")
+    if (
+        state["status"] == "revision_requested"
+        and state["revision_count"] > MAX_REVISIONS
+    ):
+        note = (
+            f"\n\n---\n*Note: maximum revision limit ({MAX_REVISIONS}) reached. "
+            f"This is the most recent draft; further review is recommended.*"
+        )
     return {"final_report": state["draft"] + note, "status": "finalized"}
 
 
@@ -96,7 +111,7 @@ def build_graph():
     graph.add_conditional_edges(
         "human_review",
         route_after_review,
-        {"finalize": "finalize", "writer": "writer"},
+        {"finalize": "finalize", "writer": "writer", "researcher": "researcher"},
     )
     graph.add_edge("finalize", END)
 

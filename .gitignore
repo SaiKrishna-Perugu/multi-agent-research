@@ -7,3 +7,5 @@ logs/
 *.egg-info/
 .ruff_cache/
 checkpoints.sqlite*
+.coverage
+htmlcov/

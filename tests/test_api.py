@@ -3,6 +3,7 @@
 POST /research and POST .../review return 202 immediately and run the graph in a
 background task, so these tests start work and then poll until it settles.
 """
+
 import time
 
 
@@ -141,7 +142,9 @@ def test_metrics_values_are_correct_not_just_present(mocked_client):
     assert body["error_count"] <= body["request_count"]
     assert 0.0 <= body["error_rate"] <= 1.0
     assert body["latency_ms_p50"] <= body["latency_ms_p95"] <= body["latency_ms_p99"]
-    assert all(body[k] >= 0 for k in ("latency_ms_p50", "latency_ms_p95", "latency_ms_p99"))
+    assert all(
+        body[k] >= 0 for k in ("latency_ms_p50", "latency_ms_p95", "latency_ms_p99")
+    )
 
 
 def test_research_failure_surfaces_via_error_field(failing_researcher_client):
@@ -154,7 +157,9 @@ def test_research_failure_surfaces_via_error_field(failing_researcher_client):
     assert "failed" in body["error"].lower()
 
 
-def test_failed_thread_is_not_reported_or_reviewable_as_awaiting_review(failing_researcher_client):
+def test_failed_thread_is_not_reported_or_reviewable_as_awaiting_review(
+    failing_researcher_client,
+):
     """A thread that fails on its very first node (before any interrupt()) still
     has a non-empty snapshot.next, since that just reflects "researcher runs
     next". awaiting_review must not conflate that with a real paused-for-review
@@ -164,7 +169,9 @@ def test_failed_thread_is_not_reported_or_reviewable_as_awaiting_review(failing_
     body = _await_thread(failing_researcher_client, thread_id)
     assert body["awaiting_review"] is False
 
-    r = failing_researcher_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    r = failing_researcher_client.post(
+        f"/research/{thread_id}/review", json={"approved": True}
+    )
     assert r.status_code == 400
 
 
@@ -187,7 +194,9 @@ def test_crashed_job_entry_still_blocks_review_after_restart(failing_researcher_
     body = failing_researcher_client.get(f"/research/{thread_id}").json()
     assert body["awaiting_review"] is False
 
-    r = failing_researcher_client.post(f"/research/{thread_id}/review", json={"approved": True})
+    r = failing_researcher_client.post(
+        f"/research/{thread_id}/review", json={"approved": True}
+    )
     assert r.status_code == 400
 
 
@@ -223,6 +232,7 @@ def test_concurrent_review_calls_only_one_is_accepted(mocked_client):
 
 def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeypatch):
     from app import config
+
     monkeypatch.setattr(config, "API_KEY", "secret123")
     r = mocked_client.post("/research", json={"topic": "test"})
     assert r.status_code == 401
@@ -230,15 +240,21 @@ def test_auth_rejects_missing_key_when_api_key_configured(mocked_client, monkeyp
 
 def test_auth_accepts_correct_key(mocked_client, monkeypatch):
     from app import config
+
     monkeypatch.setattr(config, "API_KEY", "secret123")
-    r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "secret123"})
+    r = mocked_client.post(
+        "/research", json={"topic": "test"}, headers={"X-API-Key": "secret123"}
+    )
     assert r.status_code == 202
 
 
 def test_auth_rejects_wrong_key_when_api_key_configured(mocked_client, monkeypatch):
     from app import config
+
     monkeypatch.setattr(config, "API_KEY", "secret123")
-    r = mocked_client.post("/research", json={"topic": "test"}, headers={"X-API-Key": "wrong"})
+    r = mocked_client.post(
+        "/research", json={"topic": "test"}, headers={"X-API-Key": "wrong"}
+    )
     assert r.status_code == 401
 
 
@@ -263,9 +279,11 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents, monkeypat
     db_file = str(tmp_path / "test_checkpoints.sqlite")
     monkeypatch.setattr(config, "DB_PATH", db_file)
 
-    with patch("app.graph.researcher_node", fake_agents["researcher"]), \
-         patch("app.graph.analyst_node", fake_agents["analyst"]), \
-         patch("app.graph.writer_node", fake_agents["writer"]):
+    with (
+        patch("app.graph.researcher_node", fake_agents["researcher"]),
+        patch("app.graph.analyst_node", fake_agents["analyst"]),
+        patch("app.graph.writer_node", fake_agents["writer"]),
+    ):
         from app.main import app
 
         # App Instance 1: start research thread
@@ -283,7 +301,9 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents, monkeypat
             assert res2.json()["awaiting_review"] is True
 
             # Resume and finalize in instance 2
-            rev_res = client2.post(f"/research/{thread_id}/review", json={"approved": True})
+            rev_res = client2.post(
+                f"/research/{thread_id}/review", json={"approved": True}
+            )
             assert rev_res.status_code == 202
             assert _await_thread(client2, thread_id)["status"] == "finalized"
 
@@ -292,3 +312,72 @@ def test_root_serves_the_web_ui(mocked_client):
     r = mocked_client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
+
+
+def test_metrics_requires_auth_when_api_key_configured(mocked_client, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config, "API_KEY", "secret123")
+    r_no_key = mocked_client.get("/metrics")
+    assert r_no_key.status_code == 401
+
+    r_with_key = mocked_client.get("/metrics", headers={"X-API-Key": "secret123"})
+    assert r_with_key.status_code == 200
+
+
+def test_review_window_timeout_enforced(mocked_client, monkeypatch):
+    from app import main
+
+    started = _start(mocked_client, "timeout test")
+    thread_id = started["thread_id"]
+    assert started["awaiting_review"] is True
+
+    # Simulate review timeout expiry
+    monkeypatch.setattr(main, "_is_review_timed_out", lambda snapshot: True)
+
+    # Status should reflect timeout
+    r = mocked_client.get(f"/research/{thread_id}")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "review_timed_out"
+    assert body["awaiting_review"] is False
+    assert "expired" in body["error"].lower()
+
+    # Attempting to resume review should be rejected with 400
+    rev_res = mocked_client.post(
+        f"/research/{thread_id}/review", json={"approved": True}
+    )
+    assert rev_res.status_code == 400
+    assert "expired" in rev_res.json()["detail"].lower()
+
+
+def test_review_action_research_gap_routes_back_to_researcher(mocked_client):
+    """When action is 'research_gap', the graph routes back to the researcher node
+    instead of directly to the writer, re-running decomposition and analysis with
+    the gap context."""
+    started = _start(mocked_client, "clean energy")
+    thread_id = started["thread_id"]
+    assert started["sub_queries"] == ["q1", "q2"]
+    assert started["draft"] == "draft v1"
+
+    body = _review(
+        mocked_client,
+        thread_id,
+        approved=False,
+        feedback="investigate offshore wind subsidies",
+        action="research_gap",
+    )
+    assert body["draft"] == "draft v2"
+    assert body["revision_count"] == 1
+    assert body["awaiting_review"] is True
+    assert body["sub_queries"] == [
+        "q1",
+        "q2",
+        "followup: investigate offshore wind subsidies",
+    ]
+    assert "precision" in body["citation_audit"]
+
+    # Final approval after gap research
+    final = _review(mocked_client, thread_id, approved=True)
+    assert final["status"] == "finalized"
+    assert final["final_report"] == "draft v2"

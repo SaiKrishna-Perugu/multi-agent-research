@@ -3,6 +3,7 @@ Web search tool for the researcher agent, via Tavily -- a search API built
 specifically for LLM agents (returns clean, summarized results rather than
 raw HTML/SERP scraping).
 """
+
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
@@ -64,9 +65,53 @@ def run_multi_search(queries: list) -> list:
         try:
             return run_search(query)
         except Exception as exc:
-            return SearchResult(query=query, results=[], answer=f"[search failed: {exc}]")
+            return SearchResult(
+                query=query, results=[], answer=f"[search failed: {exc}]"
+            )
 
     # map() preserves input order, which callers rely on when pairing a result
     # back to the sub-query that produced it.
     with ThreadPoolExecutor(max_workers=min(len(queries), 8)) as pool:
         return list(pool.map(_safe, queries))
+
+
+def audit_citations(draft: str, sources: list[dict]) -> dict:
+    """Audit inline markdown citations against retrieved sources.
+    Extracts [text](url) links, checks scheme validity, and flags ungrounded URLs."""
+    import re
+    from urllib.parse import urlparse
+
+    link_pattern = r"\[([^\]]+)\]\((https?://[^\s\)]+)\)"
+    found_links = re.findall(link_pattern, draft)
+
+    known_urls = {
+        s.get("url", "").rstrip("/")
+        for s in sources
+        if isinstance(s, dict) and s.get("url")
+    }
+    grounded = []
+    ungrounded = []
+
+    for text, url in found_links:
+        clean_url = url.rstrip("/")
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            ungrounded.append({"text": text, "url": url, "reason": "invalid_url"})
+            continue
+
+        if clean_url in known_urls:
+            grounded.append({"text": text, "url": url})
+        else:
+            ungrounded.append({"text": text, "url": url, "reason": "unmatched_source"})
+
+    total = len(found_links)
+    precision = round(len(grounded) / total, 4) if total > 0 else 1.0
+
+    return {
+        "total_citations": total,
+        "grounded_count": len(grounded),
+        "ungrounded_count": len(ungrounded),
+        "precision": precision,
+        "grounded": grounded,
+        "ungrounded": ungrounded,
+    }

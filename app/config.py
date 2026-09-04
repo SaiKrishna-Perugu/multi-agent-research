@@ -3,6 +3,7 @@ Centralized configuration. Every other module reads settings from here,
 never `os.getenv` directly -- keeps provider abstraction, Secret Manager
 fallback, and validation timing consistent in one place.
 """
+
 import logging
 import os
 
@@ -24,6 +25,7 @@ def _get_secret(env_name: str, default: str = "") -> str:
     if project_id:
         try:
             from google.cloud import secretmanager
+
             client = secretmanager.SecretManagerServiceClient()
             secret_id = env_name.lower().replace("_", "-")
             name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
@@ -32,7 +34,9 @@ def _get_secret(env_name: str, default: str = "") -> str:
         except Exception as exc:
             # Logged, not swallowed -- a bare `except: pass` here would mask
             # a real misconfiguration as an empty secret.
-            _logger.warning(f"Secret Manager lookup for '{env_name}' failed, falling back to default: {exc}")
+            _logger.warning(
+                f"Secret Manager lookup for '{env_name}' failed, falling back to default: {exc}"
+            )
     return default
 
 
@@ -40,7 +44,7 @@ def _get_secret(env_name: str, default: str = "") -> str:
 MODEL_PROVIDER = os.getenv("MODEL_PROVIDER", "groq").lower()
 
 GROQ_API_KEY = _get_secret("GROQ_API_KEY")
-GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
+GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
@@ -62,7 +66,9 @@ WRITER_MODEL_OVERRIDE = os.getenv("WRITER_MODEL_OVERRIDE", "")
 TAVILY_API_KEY = _get_secret("TAVILY_API_KEY")
 MAX_SEARCH_RESULTS = int(os.getenv("MAX_SEARCH_RESULTS", "5"))
 SEARCH_DEPTH = os.getenv("SEARCH_DEPTH", "basic")  # "basic" or "advanced"
-MAX_RESEARCH_QUERIES = int(os.getenv("MAX_RESEARCH_QUERIES", "4"))  # sub-queries per report
+MAX_RESEARCH_QUERIES = int(
+    os.getenv("MAX_RESEARCH_QUERIES", "4")
+)  # sub-queries per report
 
 # --- API auth / rate limiting / CORS -------------------------------------
 API_KEY = _get_secret("API_KEY")
@@ -73,7 +79,9 @@ CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").spli
 LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
 if LANGSMITH_TRACING:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGSMITH_PROJECT", "multi-agent-research")
+    os.environ["LANGCHAIN_PROJECT"] = os.getenv(
+        "LANGSMITH_PROJECT", "multi-agent-research"
+    )
 
 # --- Human-in-the-loop -------------------------------------------------------
 # How long a paused (awaiting-review) thread is kept before being treated as
@@ -84,6 +92,7 @@ REVIEW_TIMEOUT_MINUTES = int(os.getenv("REVIEW_TIMEOUT_MINUTES", "60"))
 # --- Database / Persistence --------------------------------------------------
 DB_PATH = os.getenv("DB_PATH", "checkpoints.sqlite")
 
+
 def validate_llm_config() -> None:
     if MODEL_PROVIDER == "groq" and not GROQ_API_KEY:
         raise RuntimeError(
@@ -91,7 +100,9 @@ def validate_llm_config() -> None:
             "or set MODEL_PROVIDER=vertexai to use Vertex AI instead."
         )
     if MODEL_PROVIDER == "vertexai" and not GCP_PROJECT_ID:
-        raise RuntimeError("MODEL_PROVIDER=vertexai requires GCP_PROJECT_ID to be set in .env.")
+        raise RuntimeError(
+            "MODEL_PROVIDER=vertexai requires GCP_PROJECT_ID to be set in .env."
+        )
 
 
 def validate_search_config() -> None:

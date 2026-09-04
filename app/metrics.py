@@ -4,6 +4,7 @@ dependency. Resets on restart, not aggregated across multiple instances --
 fine for a single Cloud Run instance / portfolio demo, documented as a real
 limitation (see README) rather than presented as production-grade.
 """
+
 import threading
 from collections import deque
 
@@ -56,7 +57,9 @@ def get_metrics_snapshot() -> dict:
         return {
             "request_count": _request_count,
             "error_count": _error_count,
-            "error_rate": round(_error_count / _request_count, 4) if _request_count else 0.0,
+            "error_rate": round(_error_count / _request_count, 4)
+            if _request_count
+            else 0.0,
             "latency_ms_p50": _percentile(latencies, 0.50),
             "latency_ms_p95": _percentile(latencies, 0.95),
             "latency_ms_p99": _percentile(latencies, 0.99),
