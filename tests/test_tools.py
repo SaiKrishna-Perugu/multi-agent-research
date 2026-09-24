@@ -84,3 +84,54 @@ def test_audit_citations_validates_links_and_flags_hallucinations():
     assert len(result["grounded"]) == 2
     assert result["ungrounded"][0]["url"] == "https://hallucinated.com/item"
     assert result["ungrounded"][0]["reason"] == "unmatched_source"
+
+
+def test_audit_citations_with_typesafe_semantic_verification(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from app import config
+    from app.tools import audit_citations
+
+    monkeypatch.setattr(config, "TYPESAFE_API_KEY", "test-key")
+    monkeypatch.setattr(config, "ENABLE_TYPESAFE", True)
+
+    draft = (
+        "Revenues grew by 20% ([Source 1](https://source.com/1)). "
+        "The merger was cancelled ([Source 2](https://source.com/2))."
+    )
+    sources = [
+        {
+            "title": "Source 1",
+            "url": "https://source.com/1",
+            "content": "Company reports 20% revenue growth in Q3.",
+        },
+        {
+            "title": "Source 2",
+            "url": "https://source.com/2",
+            "content": "Company denies rumors and completes merger.",
+        },
+    ]
+
+    mock_choice1 = MagicMock()
+    mock_choice1.choice = "supported"
+    mock_choice1.confidence = 0.95
+
+    mock_choice2 = MagicMock()
+    mock_choice2.choice = "contradicted"
+    mock_choice2.confidence = 0.92
+
+    mock_res = MagicMock()
+    mock_res.choices = {
+        "citation_0": mock_choice1,
+        "citation_1": mock_choice2,
+    }
+
+    with patch("app.tools.evaluate_system_one", return_value=mock_res):
+        result = audit_citations(draft, sources)
+
+    assert result["verifier"] == "typesafe"
+    assert result["total_citations"] == 2
+    assert result["grounded_count"] == 1
+    assert result["ungrounded_count"] == 1
+    assert result["grounded"][0]["confidence"] == 0.95
+    assert result["ungrounded"][0]["reason"] == "contradicted_by_source"

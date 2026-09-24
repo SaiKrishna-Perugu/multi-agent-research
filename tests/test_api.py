@@ -381,3 +381,37 @@ def test_review_action_research_gap_routes_back_to_researcher(mocked_client):
     final = _review(mocked_client, thread_id, approved=True)
     assert final["status"] == "finalized"
     assert final["final_report"] == "draft v2"
+
+
+def test_review_action_automatically_inferred_as_research_gap_via_typesafe(
+    mocked_client, monkeypatch
+):
+    from unittest.mock import patch
+
+    from app import config
+
+    monkeypatch.setattr(config, "TYPESAFE_API_KEY", "test-typesafe-key")
+    monkeypatch.setattr(config, "ENABLE_TYPESAFE", True)
+
+    started = _start(mocked_client, "clean energy")
+    thread_id = started["thread_id"]
+    assert started["sub_queries"] == ["q1", "q2"]
+
+    # Client submits review without explicit action; TypeSafe infers "research_gap"
+    with patch(
+        "app.main.classify_review_intent", return_value="research_gap"
+    ):
+        body = _review(
+            mocked_client,
+            thread_id,
+            approved=False,
+            feedback="missing crucial data on subsidies",
+            action="",  # omitted/blank
+        )
+
+    assert body["draft"] == "draft v2"
+    assert body["revision_count"] == 1
+    assert body["awaiting_review"] is True
+    assert (
+        "followup: missing crucial data on subsidies" in body["sub_queries"]
+    )

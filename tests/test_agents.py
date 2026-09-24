@@ -231,3 +231,83 @@ def test_researcher_targets_research_gap_in_decomposition():
     )
     assert result["sub_queries"] == ["gap q1", "gap q2"]
     mock_search.assert_called_once_with(["gap q1", "gap q2"])
+
+
+def test_filter_search_passages_with_typesafe_scoring(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from app import config
+    from app.agents import filter_search_passages
+    from app.tools import SearchResult
+
+    monkeypatch.setattr(config, "TYPESAFE_API_KEY", "test-typesafe-key")
+    monkeypatch.setattr(config, "ENABLE_TYPESAFE", True)
+
+    raw_results = [
+        SearchResult(
+            query="q1",
+            results=[
+                {
+                    "title": "Good Source",
+                    "url": "https://good.com",
+                    "content": "Deep technical analysis and metrics.",
+                },
+                {
+                    "title": "Spam Ad",
+                    "url": "https://ad.com",
+                    "content": "Click here to accept cookies and buy shoes.",
+                },
+            ],
+            answer="quick answer",
+        )
+    ]
+
+    mock_res = MagicMock()
+    mock_choice_good = MagicMock()
+    mock_choice_good.choice = "high"
+    mock_choice_spam = MagicMock()
+    mock_choice_spam.choice = "low"
+    mock_res.choices = {"p_0": mock_choice_good, "p_1": mock_choice_spam}
+
+    with patch("app.typesafe_client.evaluate_system_one", return_value=mock_res):
+        filtered = filter_search_passages(raw_results, "AI architecture")
+
+    assert len(filtered) == 1
+    assert len(filtered[0].results) == 1
+    assert filtered[0].results[0]["title"] == "Good Source"
+
+
+def test_filter_search_passages_preserves_at_least_one_item(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from app import config
+    from app.agents import filter_search_passages
+    from app.tools import SearchResult
+
+    monkeypatch.setattr(config, "TYPESAFE_API_KEY", "test-typesafe-key")
+    monkeypatch.setattr(config, "ENABLE_TYPESAFE", True)
+
+    raw_results = [
+        SearchResult(
+            query="q1",
+            results=[
+                {
+                    "title": "Marginal Source",
+                    "url": "https://marginal.com",
+                    "content": "Some content",
+                }
+            ],
+        )
+    ]
+
+    mock_res = MagicMock()
+    mock_choice_low = MagicMock()
+    mock_choice_low.choice = "low"
+    mock_res.choices = {"p_0": mock_choice_low}
+
+    with patch("app.typesafe_client.evaluate_system_one", return_value=mock_res):
+        filtered = filter_search_passages(raw_results, "AI architecture")
+
+    # Safety fallback preserves at least 1 item rather than an empty list
+    assert len(filtered[0].results) == 1
+    assert filtered[0].results[0]["title"] == "Marginal Source"

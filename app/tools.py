@@ -4,12 +4,16 @@ specifically for LLM agents (returns clean, summarized results rather than
 raw HTML/SERP scraping).
 """
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from langchain_tavily import TavilySearch
 
 from app import config
+from app.typesafe_client import evaluate_system_one
+
+logger = logging.getLogger("tools")
 
 
 @dataclass
@@ -77,7 +81,8 @@ def run_multi_search(queries: list) -> list:
 
 def audit_citations(draft: str, sources: list[dict]) -> dict:
     """Audit inline markdown citations against retrieved sources.
-    Extracts [text](url) links, checks scheme validity, and flags ungrounded URLs."""
+    Extracts [text](url) links, checks scheme validity, and flags ungrounded URLs.
+    When TypeSafe is available, performs semantic grounding verification on claims."""
     import re
     from urllib.parse import urlparse
 
@@ -91,14 +96,91 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
     }
     grounded = []
     ungrounded = []
+    valid_links = []
 
     for text, url in found_links:
-        clean_url = url.rstrip("/")
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             ungrounded.append({"text": text, "url": url, "reason": "invalid_url"})
             continue
+        valid_links.append((text, url))
 
+    # If TypeSafe is available and we have valid links and sources, perform semantic verification
+    if config.is_typesafe_available() and valid_links and sources:
+        try:
+            from typesafe_sdk import Choice
+
+            eval_state = {
+                "claims": [{"claim": text, "url": url} for text, url in valid_links],
+                "sources": [
+                    {
+                        "url": s.get("url", ""),
+                        "title": s.get("title", ""),
+                        "content": s.get("content", "")[:1200],
+                    }
+                    for s in sources
+                    if isinstance(s, dict)
+                ],
+            }
+            questions = {
+                f"citation_{idx}": Choice(
+                    instructions=(
+                        f"Does the retrieved source material support the claim: '{text}' (cited at {url})?"
+                    ),
+                    criteria={
+                        "supported": "Source material clearly mentions and verifies the claim",
+                        "unsupported": "Source material does not mention or verify this claim",
+                        "contradicted": "Source material directly disputes or contradicts the claim",
+                    },
+                )
+                for idx, (text, url) in enumerate(valid_links)
+            }
+            res = evaluate_system_one(eval_state, questions)
+            if res and hasattr(res, "choices") and res.choices:
+                for idx, (text, url) in enumerate(valid_links):
+                    q_id = f"citation_{idx}"
+                    choice_ans = res.choices.get(q_id)
+                    choice = choice_ans.choice if choice_ans else None
+                    conf = getattr(choice_ans, "confidence", 1.0)
+                    if choice == "supported":
+                        grounded.append({"text": text, "url": url, "confidence": conf})
+                    elif choice == "contradicted":
+                        ungrounded.append(
+                            {
+                                "text": text,
+                                "url": url,
+                                "reason": "contradicted_by_source",
+                                "confidence": conf,
+                            }
+                        )
+                    else:
+                        ungrounded.append(
+                            {
+                                "text": text,
+                                "url": url,
+                                "reason": "unsupported_by_source",
+                                "confidence": conf,
+                            }
+                        )
+                total = len(found_links)
+                precision = round(len(grounded) / total, 4) if total > 0 else 1.0
+                return {
+                    "total_citations": total,
+                    "grounded_count": len(grounded),
+                    "ungrounded_count": len(ungrounded),
+                    "precision": precision,
+                    "grounded": grounded,
+                    "ungrounded": ungrounded,
+                    "verifier": "typesafe",
+                }
+        except Exception as exc:
+            logging.getLogger("tools").warning(
+                "TypeSafe citation audit error, falling back: %s", exc
+            )
+
+    # Fallback to URL matching
+    for text, url in valid_links:
+        clean_url = url.rstrip("/")
         if clean_url in known_urls:
             grounded.append({"text": text, "url": url})
         else:

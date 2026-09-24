@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from app import config
 from app.providers import get_llm
-from app.tools import run_multi_search
+from app.tools import SearchResult, run_multi_search
 
 
 class DecomposedQueries(BaseModel):
@@ -88,6 +88,88 @@ def _clean_json_markdown(text: str) -> str:
     return text
 
 
+def filter_search_passages(search_results: list, topic: str) -> list:
+    """Intelligently score and filter retrieved search passages using TypeSafe System One.
+
+    Discards low-relevance marketing boilerplate and off-topic snippets before LLM
+    synthesis. This protects the token budget and keeps inputs well within provider
+    ceilings (e.g. Groq 8000 TPM limit). Completely fail-open: returns original
+    results if TypeSafe is not configured or an evaluation fails.
+    """
+    if not config.is_typesafe_available() or not search_results:
+        return search_results
+
+    try:
+        import logging
+
+        from typesafe_sdk import Choice
+
+        from app.typesafe_client import evaluate_system_one
+
+        indexed_items = []
+        for r_idx, r in enumerate(search_results):
+            for i_idx, item in enumerate(getattr(r, "results", [])):
+                indexed_items.append((r_idx, i_idx, item))
+
+        if not indexed_items:
+            return search_results
+
+        eval_state = {
+            "topic": topic,
+            "passages": [
+                {
+                    "id": f"p_{k}",
+                    "title": item.get("title", ""),
+                    "content": item.get("content", "")[:700],
+                }
+                for k, (_, _, item) in enumerate(indexed_items)
+            ],
+        }
+        questions = {
+            f"p_{k}": Choice(
+                instructions=f"Rate the factual relevance and informational value of passage p_{k} for the research topic: '{topic}'",
+                criteria={
+                    "low": "Irrelevant, generic marketing, SEO fluff, or cookie policy",
+                    "medium": "Tangentially related background or broad context",
+                    "high": "Specific, factual evidence, statistics, or direct relevant findings",
+                },
+            )
+            for k, (_, _, item) in enumerate(indexed_items)
+        }
+
+        res = evaluate_system_one(eval_state, questions)
+        if not res or not hasattr(res, "choices") or not res.choices:
+            return search_results
+
+        filtered_by_r = {r_idx: [] for r_idx in range(len(search_results))}
+        for k, (r_idx, _, item) in enumerate(indexed_items):
+            choice_ans = res.choices.get(f"p_{k}")
+            choice_val = choice_ans.choice if choice_ans else "medium"
+            if choice_val in ("medium", "high"):
+                filtered_by_r[r_idx].append(item)
+
+        new_results = []
+        for r_idx, r in enumerate(search_results):
+            original_items = getattr(r, "results", [])
+            kept = filtered_by_r.get(r_idx, [])
+            if not kept and original_items:
+                kept = [original_items[0]]
+            new_results.append(
+                SearchResult(
+                    query=r.query,
+                    results=kept,
+                    answer=getattr(r, "answer", ""),
+                )
+            )
+        return new_results
+    except Exception as exc:
+        import logging
+        logging.getLogger("agents").warning(
+            "TypeSafe passage filtering error, falling back: %s", exc
+        )
+        return search_results
+
+
 @traceable(name="agent.researcher", run_type="chain")
 def researcher_node(state: dict) -> dict:
     llm = get_llm(temperature=0.2, model_override=config.RESEARCHER_MODEL_OVERRIDE)
@@ -137,6 +219,7 @@ def researcher_node(state: dict) -> dict:
             sub_queries = [state["topic"]]
 
     search_results = run_multi_search(sub_queries)
+    search_results = filter_search_passages(search_results, state["topic"])
 
     results_text = "\n\n".join(
         f"Query: {r.query}\n"

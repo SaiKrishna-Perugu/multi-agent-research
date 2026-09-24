@@ -92,6 +92,15 @@ REVIEW_TIMEOUT_MINUTES = int(os.getenv("REVIEW_TIMEOUT_MINUTES", "60"))
 # --- Database / Persistence --------------------------------------------------
 DB_PATH = os.getenv("DB_PATH", "checkpoints.sqlite")
 
+# --- TypeSafe System One (intelligent judgment) ------------------------------
+TYPESAFE_API_KEY = _get_secret("TYPESAFE_API_KEY")
+TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-1.13")
+ENABLE_TYPESAFE = os.getenv("ENABLE_TYPESAFE", "true").lower() in ("true", "1")
+
+
+def is_typesafe_available() -> bool:
+    return bool(TYPESAFE_API_KEY and ENABLE_TYPESAFE)
+
 
 def validate_llm_config() -> None:
     if MODEL_PROVIDER == "groq" and not GROQ_API_KEY:

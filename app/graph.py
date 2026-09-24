@@ -59,8 +59,15 @@ def human_review_node(state: ResearchState) -> ResearchState:
         }
     )
     approved = bool(decision.get("approved", False))
-    action = decision.get("action", "approve" if approved else "revise")
+    action = decision.get("action", "")
     feedback = decision.get("feedback", "") if not approved else ""
+    if not approved and not action and feedback:
+        from app.typesafe_client import classify_review_intent
+
+        action = classify_review_intent(feedback, state.get("draft", ""))
+    if not action:
+        action = "approve" if approved else "revise"
+
     return {
         "revision_feedback": feedback,
         "revision_count": state["revision_count"] + (0 if approved else 1),

@@ -38,6 +38,7 @@ from slowapi.util import get_remote_address
 from app import config, metrics
 from app.graph import MAX_REVISIONS, build_graph
 from app.tools import audit_citations
+from app.typesafe_client import classify_review_intent, classify_runtime_error
 
 # --- Structured logging ------------------------------------------------------
 LOG_PATH = Path("logs")
@@ -207,10 +208,23 @@ def _run_graph(graph, thread_id: str, payload, topic: str = "") -> None:
         result = graph.invoke(payload, config=thread_config)
     except Exception as exc:
         metrics.record_request((time.perf_counter() - start) * 1000, error=True)
-        logger.error(
-            json.dumps({"event": "error", "thread_id": thread_id, "error": str(exc)})
+        category = classify_runtime_error(exc) if config.is_typesafe_available() else ""
+        error_msg = (
+            f"Report generation failed [{category}]: {exc}"
+            if category and category != "system_error"
+            else f"Report generation failed: {exc}"
         )
-        _job_finish(thread_id, f"Report generation failed: {exc}")
+        logger.error(
+            json.dumps(
+                {
+                    "event": "error",
+                    "thread_id": thread_id,
+                    "error": str(exc),
+                    "error_category": category or "uncategorized",
+                }
+            )
+        )
+        _job_finish(thread_id, error_msg)
         return
 
     latency_ms = (time.perf_counter() - start) * 1000
@@ -454,7 +468,14 @@ async def review_research(
     if not body.approved:
         metrics.record_revision_requested()
 
-    action = body.action or ("approve" if body.approved else "revise")
+    action = body.action
+    if not body.approved and not action and body.feedback:
+        action = classify_review_intent(
+            body.feedback, snapshot.values.get("draft", "")
+        )
+    if not action:
+        action = "approve" if body.approved else "revise"
+
     resume_payload = Command(
         resume={
             "approved": body.approved,
