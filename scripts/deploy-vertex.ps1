@@ -101,7 +101,13 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Tests failed; deployment stopped.' }
     } finally {
         foreach ($name in $savedSettings.Keys) {
-            [Environment]::SetEnvironmentVariable($name, $savedSettings[$name], 'Process')
+            # PowerShell 7 preserves empty strings on Linux; remove originally
+            # absent variables explicitly rather than binding null to a string.
+            if ($null -eq $savedSettings[$name]) {
+                Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+            } else {
+                [Environment]::SetEnvironmentVariable($name, $savedSettings[$name], 'Process')
+            }
         }
     }
 
