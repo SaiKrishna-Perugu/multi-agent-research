@@ -1,0 +1,15 @@
+# Cloud Build needs only the Dockerfile inputs and application assets.
+# Explicit inclusion keeps local sessions, credentials, and runtime data private.
+*
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!app/
+!app/**
+__pycache__/
+*.pyc
+.env
+.env.*
+*.sqlite*
+logs/

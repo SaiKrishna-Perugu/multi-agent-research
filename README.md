@@ -181,6 +181,14 @@ to preserve that change. Cleanup errors retain the original failure message.
 The script pins `multi-agent-research-507619` and `us-central1` by default; both
 can be overridden with parameters. It reuses the existing runtime service account
 and secrets and requires authenticated `gcloud`, `uv`, and Python >=3.13.
+Local tests use `python -m pytest` so they do not depend on a platform-specific
+pytest launcher. `.gcloudignore` includes only the Dockerfile inputs and app
+assets in the Cloud Build upload; local credentials, checkpoints, and tooling
+stay on your machine. The rollout pins all three agents to the selected model
+with a 60-second timeout and one retry per call. If application API-key auth is
+enabled, set `RESEARCH_API_KEY` in your shell before running the script; it is
+sent in request headers and never written to the rollout report. A deployment
+that partially succeeds also triggers test-tag cleanup.
 
 Vertex defaults to `gemini-3.5-flash` at the `global` model endpoint; this location
 is independent of the Cloud Run region. Gemini 2.0 is retired, and Gemini 2.5

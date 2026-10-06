@@ -17,7 +17,10 @@ function uv {
 }
 function Start-Sleep { throw 'Fixture unexpectedly entered a polling retry.' }
 function Invoke-RestMethod {
-    param([string]$Uri, [string]$Method, [string]$ContentType, [int]$TimeoutSec, [string]$Body)
+    param([string]$Uri, [string]$Method, [string]$ContentType, [int]$TimeoutSec, [string]$Body, [hashtable]$Headers)
+    if ($global:Scenario -eq 'authenticated' -and $Headers['X-API-Key'] -ne 'test-rollout-key') {
+        throw 'Missing rollout API key header'
+    }
     if ($Uri -like 'https://public.example/*') {
         if ($global:Scenario -eq 'concurrent_public_change') { $global:PublicRevision = 'other' }
         if ($global:Scenario -in @('public_failure', 'concurrent_public_change')) { throw 'Simulated public failure' }
@@ -39,7 +42,7 @@ $envNames = @('MODEL_PROVIDER', 'GROQ_API_KEY', 'TAVILY_API_KEY', 'API_KEY', 'GC
 $beforeEnvironment = @{}
 foreach ($name in $envNames) { $beforeEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 
-$cases = @('verify_only', 'promote', 'wrong_provider', 'research_failure', 'public_failure',
+$cases = @('verify_only', 'promote', 'authenticated', 'partial_deploy', 'wrong_provider', 'research_failure', 'public_failure',
     'partial_promotion', 'concurrent_change', 'concurrent_public_change', 'cleanup_failure', 'dependency_failure')
 foreach ($case in $cases) {
     $global:Scenario = $case
@@ -52,10 +55,10 @@ foreach ($case in $cases) {
     $global:CleanupCount = 0
     $global:Finalized = $false
     $failure = $null
-    try { & $testScript -Promote:($case -ne 'verify_only') } catch { $failure = $_ }
-    if ($case -in @('verify_only', 'promote') -and $failure) { throw "$case unexpectedly failed: $failure" }
-    if ($case -notin @('verify_only', 'promote') -and -not $failure) { throw "$case should fail" }
-    if ($case -in @('verify_only', 'wrong_provider', 'research_failure', 'concurrent_change', 'cleanup_failure', 'dependency_failure') -and $global:PromotionCount -ne 0) {
+    try { & $testScript -Promote:($case -ne 'verify_only') -ApiKey 'test-rollout-key' } catch { $failure = $_ }
+    if ($case -in @('verify_only', 'promote', 'authenticated') -and $failure) { throw "$case unexpectedly failed: $failure" }
+    if ($case -notin @('verify_only', 'promote', 'authenticated') -and -not $failure) { throw "$case should fail" }
+    if ($case -in @('verify_only', 'partial_deploy', 'wrong_provider', 'research_failure', 'concurrent_change', 'cleanup_failure', 'dependency_failure') -and $global:PromotionCount -ne 0) {
         throw "$case incorrectly promoted"
     }
     if ($case -eq 'promote' -and $global:PublicRevision -ne 'candidate') { throw 'Successful rollout was not promoted' }
@@ -70,7 +73,7 @@ foreach ($case in $cases) {
         if ($global:CloudCalls.Count -ne 0) { throw 'Cloud calls occurred after local checks failed' }
     } else {
         $deploy = $global:CloudCalls | Where-Object { $_ -match 'run deploy' }
-        foreach ($required in @('--no-traffic', '--no-cpu-throttling', '--max-instances=1', '--project=multi-agent-research-507619')) {
+        foreach ($required in @('--no-traffic', '--no-cpu-throttling', '--max-instances=1', '--project=multi-agent-research-507619', 'RESEARCHER_MODEL_OVERRIDE=gemini-3.5-flash', 'ANALYST_MODEL_OVERRIDE=gemini-3.5-flash', 'WRITER_MODEL_OVERRIDE=gemini-3.5-flash', 'LLM_REQUEST_TIMEOUT=60', 'LLM_MAX_RETRIES=1')) {
             if ($deploy -notlike "*$required*") { throw "Deployment missing $required" }
         }
         if ($failure -and $global:CleanupCount -ne 1) { throw "$case did not attempt tag cleanup" }

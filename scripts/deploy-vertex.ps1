@@ -3,7 +3,8 @@ param(
     [string]$Region = 'us-central1',
     [string]$Model = 'gemini-3.5-flash',
     [string]$ModelLocation = 'global',
-    [switch]$Promote
+    [switch]$Promote,
+    [string]$ApiKey = $env:RESEARCH_API_KEY
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,8 +17,10 @@ $image = "$Region-docker.pkg.dev/$ProjectId/research-repo/${service}:vertexfix-$
 $scope = @("--project=$ProjectId", "--region=$Region")
 $promoted = $false
 $promotionAttempted = $false
-$deployed = $false
+$deploymentAttempted = $false
 $publicThreadId = $null
+$apiHeaders = @{}
+if ($ApiKey) { $apiHeaders['X-API-Key'] = $ApiKey }
 
 function Invoke-Gcloud {
     param([string[]]$Arguments)
@@ -41,7 +44,7 @@ function Wait-Research {
     param([string]$BaseUrl, [string]$ThreadId, [string]$Expected)
     $deadline = [DateTime]::UtcNow.AddMinutes(10)
     do {
-        $state = Invoke-RestMethod -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
+        $state = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
         if ($state.error) { throw "Research failed: $($state.error)" }
         if ($Expected -eq 'review' -and $state.awaiting_review -and -not $state.running) { return $state }
         if ($Expected -eq 'finalized' -and $state.status -eq 'finalized' -and -not $state.running) { return $state }
@@ -53,18 +56,18 @@ function Wait-Research {
 
 function Test-Lifecycle {
     param([string]$BaseUrl)
-    $health = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 60
+    $health = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/health" -TimeoutSec 60
     if ($health.status -ne 'ok') { throw 'Health check failed.' }
-    $ready = Invoke-RestMethod -Uri "$BaseUrl/ready" -TimeoutSec 60
+    $ready = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/ready" -TimeoutSec 60
     if ($ready.status -ne 'ready' -or $ready.model_provider -ne 'vertexai' -or $ready.model -ne $Model) {
         throw 'Readiness did not confirm the expected Vertex model.'
     }
-    $started = Invoke-RestMethod -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
+    $started = Invoke-RestMethod -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
         -Body (@{ topic = 'Recent progress in solid-state batteries: cite two sources and summarize briefly.' } | ConvertTo-Json)
     if (-not $started.thread_id) { throw 'No research thread was returned.' }
     $review = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'review'
     if (-not $review.draft -or @($review.sources).Count -eq 0) { throw 'Draft or research sources are missing.' }
-    $null = Invoke-RestMethod -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
+    $null = Invoke-RestMethod -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
         -ContentType 'application/json' -Body '{"approved":true}' -TimeoutSec 90
     $final = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'finalized'
     if (-not $final.final_report) { throw 'Final report is empty.' }
@@ -94,7 +97,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Lint failed.' }
         & uv run --frozen ruff format --check .
         if ($LASTEXITCODE -ne 0) { throw 'Formatting failed.' }
-        & uv run --frozen pytest tests/ -v
+        & uv run --frozen python -m pytest tests/ -v
         if ($LASTEXITCODE -ne 0) { throw 'Tests failed; deployment stopped.' }
     } finally {
         foreach ($name in $savedSettings.Keys) {
@@ -106,14 +109,16 @@ try {
     $previousTraffic = Get-Traffic -ServiceState $before
     if (-not $previousTraffic) { throw 'Cannot capture current traffic for rollback.' }
     $null = Invoke-Gcloud -Arguments @('builds', 'submit', "--tag=$image", "--project=$ProjectId", '--quiet')
+    # Deployment can create a revision/tag even if the CLI reports an error.
+    $deploymentAttempted = $true
     $null = Invoke-Gcloud -Arguments (@('run', 'deploy', $service) + $scope + @(
         "--image=$image", '--no-traffic', "--tag=$tag", '--quiet',
         '--memory=1Gi', '--timeout=300', '--min-instances=1', '--max-instances=1',
         '--concurrency=1', '--no-cpu-throttling',
         "--service-account=$service@$ProjectId.iam.gserviceaccount.com",
-        "--update-env-vars=MODEL_PROVIDER=vertexai,GCP_PROJECT_ID=$ProjectId,GCP_LOCATION=$ModelLocation,VERTEX_CHAT_MODEL=$Model"
+        "--update-env-vars=MODEL_PROVIDER=vertexai,GCP_PROJECT_ID=$ProjectId,GCP_LOCATION=$ModelLocation,VERTEX_CHAT_MODEL=$Model,RESEARCHER_MODEL_OVERRIDE=$Model,ANALYST_MODEL_OVERRIDE=$Model,WRITER_MODEL_OVERRIDE=$Model,LLM_REQUEST_TIMEOUT=60,LLM_MAX_RETRIES=1"
     ))
-    $deployed = $true
+
     $candidate = Get-Service
     $tagged = $candidate.status.traffic | Where-Object { $_.tag -eq $tag } | Select-Object -First 1
     if (-not $tagged.url -or -not $tagged.revisionName) { throw 'Tagged revision was not found.' }
@@ -154,7 +159,7 @@ try {
             Write-Warning "Could not restore public traffic: $_"
         }
     }
-    if ($deployed) {
+    if ($deploymentAttempted) {
         try {
             $null = Invoke-Gcloud -Arguments (@('run', 'services', 'update-traffic', $service) + $scope + @("--remove-tags=$tag", '--quiet'))
         } catch {

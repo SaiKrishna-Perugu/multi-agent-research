@@ -15,6 +15,7 @@ if ($command -match 'services describe') {
 } elseif ($command -match 'run deploy') {
     $global:CandidateExists = $true
     $global:TestTag = ($args | Where-Object { $_ -like '--tag=*' }) -replace '^--tag=', ''
+    if ($global:Scenario -eq 'partial_deploy') { $global:LASTEXITCODE = 1 }
 } elseif ($command -match '--to-revisions=candidate=100') {
     $global:PublicRevision = 'candidate'
     $global:PromotionCount++
