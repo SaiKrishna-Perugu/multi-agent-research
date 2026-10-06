@@ -37,7 +37,9 @@ def _build_llm(provider: str, temperature: float, model_override: str):
             location=config.GCP_LOCATION,
             temperature=temperature,
             max_retries=config.LLM_MAX_RETRIES,
-            request_timeout=config.LLM_REQUEST_TIMEOUT,
+            # ChatVertexAI forwards `timeout` to generate_content. Unknown
+            # kwargs such as `request_timeout` leave its deadline unset.
+            timeout=config.LLM_REQUEST_TIMEOUT,
         )
 
     from langchain_groq import ChatGroq

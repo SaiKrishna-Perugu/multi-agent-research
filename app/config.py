@@ -47,8 +47,8 @@ GROQ_API_KEY = _get_secret("GROQ_API_KEY")
 GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
-GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
-VERTEX_CHAT_MODEL = os.getenv("VERTEX_CHAT_MODEL", "gemini-2.0-flash-001")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "global")
+VERTEX_CHAT_MODEL = os.getenv("VERTEX_CHAT_MODEL", "gemini-3.5-flash")
 
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "3"))
 LLM_REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "60"))
@@ -84,9 +84,8 @@ if LANGSMITH_TRACING:
     )
 
 # --- Human-in-the-loop -------------------------------------------------------
-# How long a paused (awaiting-review) thread is kept before being treated as
-# abandoned -- purely informational for now (surfaced via /research/{id}
-# status), not yet enforced by an eviction job. See README roadmap.
+# Review window checked when polling or submitting feedback. Expired reviews
+# are rejected; a background eviction job does not delete old checkpoints.
 REVIEW_TIMEOUT_MINUTES = int(os.getenv("REVIEW_TIMEOUT_MINUTES", "60"))
 
 # --- Database / Persistence --------------------------------------------------
@@ -103,6 +102,12 @@ def is_typesafe_available() -> bool:
 
 
 def validate_llm_config() -> None:
+    if MODEL_PROVIDER not in {"groq", "vertexai"}:
+        raise RuntimeError("MODEL_PROVIDER must be 'groq' or 'vertexai'.")
+    if LLM_REQUEST_TIMEOUT <= 0:
+        raise RuntimeError("LLM_REQUEST_TIMEOUT must be greater than zero seconds.")
+    if LLM_MAX_RETRIES < 0:
+        raise RuntimeError("LLM_MAX_RETRIES must be zero or greater.")
     if MODEL_PROVIDER == "groq" and not GROQ_API_KEY:
         raise RuntimeError(
             "GROQ_API_KEY is not set. Copy .env.example to .env and add your key, "

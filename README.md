@@ -111,6 +111,16 @@ lifecycle (start/status/revise/approve), the revision cap, auth, error
 handling, and each agent's branching logic (JSON-decomposition fallback,
 first-draft vs. revision-pass prompting) in isolation from the graph.
 
+Offline rollout checks also run in CI. From PowerShell:
+
+```powershell
+.\tests\test_deploy_vertex.ps1
+```
+
+These exercise promotion, rollback after partially applied traffic changes,
+concurrent rollouts, cleanup failures, failed local checks, and restoration of
+the caller's environment, with mocked cloud commands and HTTP requests.
+
 ## Deploying to GCP Cloud Run
 
 Same pattern as Project 1 -- see that project's README for the fully
@@ -136,18 +146,53 @@ gcloud run deploy multi-agent-research \
   --memory 1Gi \
   --timeout 300 \
   --min-instances 1 \
+  --max-instances 1 \
+  --no-cpu-throttling \
   --concurrency 1 \
   --set-env-vars MODEL_PROVIDER=groq \
   --set-secrets GROQ_API_KEY=groq-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
 ```
 
-`--min-instances 1` keeps an instance warm so a background run's thread isn't
-paused mid-flight by scale-to-zero; `--concurrency 1` stops Cloud Run from
-routing a second request onto an instance whose CPU is already throttled
-running a background task for a prior request. Neither eliminates the
-single-instance/in-process-state limitations below -- they mitigate the
-specific CPU-throttling and cold-start failure mode, not the underlying
-architecture.
+`--no-cpu-throttling` allocates CPU after the HTTP 202 response, while research
+runs in the background. Minimum instances alone do not provide this guarantee.
+Always-allocated CPU uses instance-based billing, including idle time; see the
+[Cloud Run billing guide](https://docs.cloud.google.com/run/docs/configuring/billing-settings).
+`--min-instances 1` keeps the demo warm, `--max-instances 1` limits scaling of
+the revision using instance-local SQLite, and `--concurrency 1` limits simultaneous
+requests. These settings do not make checkpoints durable across instance recycling
+or shared across revisions.
+
+### Verify and finish the Vertex AI rollout
+
+From PowerShell in the repository root:
+
+```powershell
+.\scripts\deploy-vertex.ps1 -Promote
+```
+
+The script runs lint, formatting, and mocked Python tests, builds a uniquely tagged image,
+and deploys a Vertex revision with zero public traffic. It checks the configured
+provider, runs real research to the review checkpoint, approves the report, and
+checks finalization before promoting the revision. Public traffic is only changed
+after these checks pass. Omit `-Promote` to leave the verified revision available
+through its test tag. A failed public verification restores the previous traffic.
+If another rollout changes traffic, the script stops promotion or skips rollback
+to preserve that change. Cleanup errors retain the original failure message.
+The script pins `multi-agent-research-507619` and `us-central1` by default; both
+can be overridden with parameters. It reuses the existing runtime service account
+and secrets and requires authenticated `gcloud`, `uv`, and Python >=3.13.
+
+Vertex defaults to `gemini-3.5-flash` at the `global` model endpoint; this location
+is independent of the Cloud Run region. Gemini 2.0 is retired, and Gemini 2.5
+is nearing retirement; consult the
+[model lifecycle](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions)
+before selecting an override. The adapter's `timeout` parameter receives
+`LLM_REQUEST_TIMEOUT` in seconds for each API attempt. `LLM_MAX_RETRIES` can
+extend total execution time. `/ready` checks configuration and graph startup,
+so a successful readiness check alone does not verify model inference.
+
+SQLite checkpoints remain instance-local. Reports created on an older revision
+are not transferred to the new revision during promotion.
 
 ## Known limitations (say these before you're asked)
 
@@ -166,10 +211,9 @@ architecture.
   not. On Cloud Run this is sharper -- CPU is throttled outside request handling and
   instances scale to zero, so a background run can stall or be killed. Local and
   single-instance only, as-is.
-- **No timeout eviction for abandoned threads.** `REVIEW_TIMEOUT_MINUTES`
-  is defined in config but not yet enforced -- a report that's never
-  reviewed just sits in memory indefinitely. A real system would need a
-  background job to expire/evict old paused threads.
+- **No automatic eviction for abandoned threads.** `REVIEW_TIMEOUT_MINUTES`
+  is checked when polling or submitting a review: expired reviews are rejected.
+  There is no background cleanup job deleting abandoned checkpoints.
 - **`/metrics` resets on restart and doesn't aggregate across instances** --
   same limitation as Project 1's metrics, same reasoning: honest about it
   rather than presenting it as production-grade.

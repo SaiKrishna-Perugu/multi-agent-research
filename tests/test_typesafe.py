@@ -75,9 +75,7 @@ def test_classify_review_intent_identifies_textual_revision(monkeypatch):
 
 def test_classify_review_intent_falls_back_when_unconfigured(monkeypatch):
     monkeypatch.setattr(config, "TYPESAFE_API_KEY", "")
-    assert (
-        classify_review_intent("Any feedback text without TypeSafe key") == "revise"
-    )
+    assert classify_review_intent("Any feedback text without TypeSafe key") == "revise"
 
 
 def test_classify_runtime_error_identifies_rate_limit(monkeypatch):

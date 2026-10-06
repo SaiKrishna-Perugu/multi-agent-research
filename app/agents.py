@@ -164,6 +164,7 @@ def filter_search_passages(search_results: list, topic: str) -> list:
         return new_results
     except Exception as exc:
         import logging
+
         logging.getLogger("agents").warning(
             "TypeSafe passage filtering error, falling back: %s", exc
         )

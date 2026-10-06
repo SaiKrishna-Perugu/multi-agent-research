@@ -470,9 +470,7 @@ async def review_research(
 
     action = body.action
     if not body.approved and not action and body.feedback:
-        action = classify_review_intent(
-            body.feedback, snapshot.values.get("draft", "")
-        )
+        action = classify_review_intent(body.feedback, snapshot.values.get("draft", ""))
     if not action:
         action = "approve" if body.approved else "revise"
 

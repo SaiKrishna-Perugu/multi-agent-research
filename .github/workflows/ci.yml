@@ -43,6 +43,10 @@ jobs:
         TAVILY_API_KEY: "tvly-ci-placeholder-not-real"
       run: uv run pytest tests/ -v --cov=app --cov-report=term-missing
 
+    - name: Test rollout promotion and rollback without cloud access
+      shell: pwsh
+      run: ./tests/test_deploy_vertex.ps1
+
     - name: Audit dependencies for known vulnerabilities
       run: uv run --with pip-audit pip-audit
 

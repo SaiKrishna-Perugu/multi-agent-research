@@ -398,9 +398,7 @@ def test_review_action_automatically_inferred_as_research_gap_via_typesafe(
     assert started["sub_queries"] == ["q1", "q2"]
 
     # Client submits review without explicit action; TypeSafe infers "research_gap"
-    with patch(
-        "app.main.classify_review_intent", return_value="research_gap"
-    ):
+    with patch("app.main.classify_review_intent", return_value="research_gap"):
         body = _review(
             mocked_client,
             thread_id,
@@ -412,6 +410,4 @@ def test_review_action_automatically_inferred_as_research_gap_via_typesafe(
     assert body["draft"] == "draft v2"
     assert body["revision_count"] == 1
     assert body["awaiting_review"] is True
-    assert (
-        "followup: missing crucial data on subsidies" in body["sub_queries"]
-    )
+    assert "followup: missing crucial data on subsidies" in body["sub_queries"]
