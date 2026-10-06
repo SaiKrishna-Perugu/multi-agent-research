@@ -93,7 +93,7 @@ DB_PATH = os.getenv("DB_PATH", "checkpoints.sqlite")
 
 # --- TypeSafe System One (intelligent judgment) ------------------------------
 TYPESAFE_API_KEY = _get_secret("TYPESAFE_API_KEY")
-TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-1.13")
+TYPESAFE_MODEL = os.getenv("TYPESAFE_MODEL", "jev-1.13.0")
 ENABLE_TYPESAFE = os.getenv("ENABLE_TYPESAFE", "true").lower() in ("true", "1")
 
 

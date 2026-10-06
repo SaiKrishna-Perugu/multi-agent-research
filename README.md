@@ -148,7 +148,8 @@ gcloud run deploy multi-agent-research \
   --min-instances 1 \
   --max-instances 1 \
   --no-cpu-throttling \
-  --concurrency 1 \
+  --concurrency 8 \
+  --session-affinity \
   --set-env-vars MODEL_PROVIDER=groq \
   --set-secrets GROQ_API_KEY=groq-api-key:latest,TAVILY_API_KEY=tavily-api-key:latest
 ```
@@ -157,10 +158,14 @@ gcloud run deploy multi-agent-research \
 runs in the background. Minimum instances alone do not provide this guarantee.
 Always-allocated CPU uses instance-based billing, including idle time; see the
 [Cloud Run billing guide](https://docs.cloud.google.com/run/docs/configuring/billing-settings).
-`--min-instances 1` keeps the demo warm, `--max-instances 1` limits scaling of
-the revision using instance-local SQLite, and `--concurrency 1` limits simultaneous
-requests. These settings do not make checkpoints durable across instance recycling
-or shared across revisions.
+`--min-instances 1` keeps the demo warm and `--max-instances 1` limits scaling
+of the revision using instance-local SQLite. `--concurrency 8` leaves room for
+polling while background work is active. Cloud Run can briefly exceed a
+maximum-instance setting, so the demo enables `--session-affinity` and clients
+must preserve its cookie across research, polling, and review calls. Affinity is
+best effort: instance replacement or saturation can still lose access to local
+state. These settings do not make checkpoints durable or shared across revisions.
+Shared database checkpoints and job ownership are required for durable scaling.
 
 ### Verify and finish the Vertex AI rollout
 
@@ -188,7 +193,10 @@ stay on your machine. The rollout pins all three agents to the selected model
 with a 60-second timeout and one retry per call. If application API-key auth is
 enabled, set `RESEARCH_API_KEY` in your shell before running the script; it is
 sent in request headers and never written to the rollout report. A deployment
-that partially succeeds also triggers test-tag cleanup.
+that partially succeeds also triggers test-tag cleanup. The test client preserves
+Cloud Run affinity cookies throughout each lifecycle. TypeSafe uses the exact
+supported version `jev-1.13.0`; `-TypeSafeModel` can select another supported model
+from the [TypeSafe model catalog](https://docs.typesafe.ai/models).
 
 Vertex defaults to `gemini-3.5-flash` at the `global` model endpoint; this location
 is independent of the Cloud Run region. Gemini 2.0 is retired, and Gemini 2.5

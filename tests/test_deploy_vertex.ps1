@@ -17,7 +17,13 @@ function uv {
 }
 function Start-Sleep { throw 'Fixture unexpectedly entered a polling retry.' }
 function Invoke-RestMethod {
-    param([string]$Uri, [string]$Method, [string]$ContentType, [int]$TimeoutSec, [string]$Body, [hashtable]$Headers)
+    param([string]$Uri, [string]$Method, [string]$ContentType, [int]$TimeoutSec, [string]$Body, [hashtable]$Headers, [object]$WebSession)
+    if ($null -eq $WebSession) { throw 'No request session supplied' }
+    if ($Uri -like '*/health') {
+        $global:ExpectedWebSession = $WebSession
+    } elseif (-not [object]::ReferenceEquals($WebSession, $global:ExpectedWebSession)) {
+        throw 'Request session changed during the lifecycle'
+    }
     if ($global:Scenario -eq 'authenticated' -and $Headers['X-API-Key'] -ne 'test-rollout-key') {
         throw 'Missing rollout API key header'
     }
@@ -73,7 +79,7 @@ foreach ($case in $cases) {
         if ($global:CloudCalls.Count -ne 0) { throw 'Cloud calls occurred after local checks failed' }
     } else {
         $deploy = $global:CloudCalls | Where-Object { $_ -match 'run deploy' }
-        foreach ($required in @('--no-traffic', '--no-cpu-throttling', '--max-instances=1', '--project=multi-agent-research-507619', 'RESEARCHER_MODEL_OVERRIDE=gemini-3.5-flash', 'ANALYST_MODEL_OVERRIDE=gemini-3.5-flash', 'WRITER_MODEL_OVERRIDE=gemini-3.5-flash', 'LLM_REQUEST_TIMEOUT=60', 'LLM_MAX_RETRIES=1')) {
+        foreach ($required in @('--no-traffic', '--no-cpu-throttling', '--session-affinity', '--concurrency=8', '--max-instances=1', '--project=multi-agent-research-507619', 'RESEARCHER_MODEL_OVERRIDE=gemini-3.5-flash', 'ANALYST_MODEL_OVERRIDE=gemini-3.5-flash', 'WRITER_MODEL_OVERRIDE=gemini-3.5-flash', 'LLM_REQUEST_TIMEOUT=60', 'LLM_MAX_RETRIES=1', 'TYPESAFE_MODEL=jev-1.13.0')) {
             if ($deploy -notlike "*$required*") { throw "Deployment missing $required" }
         }
         if ($failure -and $global:CleanupCount -ne 1) { throw "$case did not attempt tag cleanup" }

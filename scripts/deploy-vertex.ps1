@@ -4,7 +4,8 @@ param(
     [string]$Model = 'gemini-3.5-flash',
     [string]$ModelLocation = 'global',
     [switch]$Promote,
-    [string]$ApiKey = $env:RESEARCH_API_KEY
+    [string]$ApiKey = $env:RESEARCH_API_KEY,
+    [string]$TypeSafeModel = 'jev-1.13.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,10 +42,10 @@ function Get-Traffic {
 }
 
 function Wait-Research {
-    param([string]$BaseUrl, [string]$ThreadId, [string]$Expected)
+    param([string]$BaseUrl, [string]$ThreadId, [string]$Expected, [Microsoft.PowerShell.Commands.WebRequestSession]$WebSession)
     $deadline = [DateTime]::UtcNow.AddMinutes(10)
     do {
-        $state = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
+        $state = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
         if ($state.error) { throw "Research failed: $($state.error)" }
         if ($Expected -eq 'review' -and $state.awaiting_review -and -not $state.running) { return $state }
         if ($Expected -eq 'finalized' -and $state.status -eq 'finalized' -and -not $state.running) { return $state }
@@ -56,20 +57,22 @@ function Wait-Research {
 
 function Test-Lifecycle {
     param([string]$BaseUrl)
-    $health = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/health" -TimeoutSec 60
+    # Keep Cloud Run's affinity cookie for all requests in this lifecycle.
+    $WebSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    $health = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Uri "$BaseUrl/health" -TimeoutSec 60
     if ($health.status -ne 'ok') { throw 'Health check failed.' }
-    $ready = Invoke-RestMethod -Headers $apiHeaders -Uri "$BaseUrl/ready" -TimeoutSec 60
+    $ready = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Uri "$BaseUrl/ready" -TimeoutSec 60
     if ($ready.status -ne 'ready' -or $ready.model_provider -ne 'vertexai' -or $ready.model -ne $Model) {
         throw 'Readiness did not confirm the expected Vertex model.'
     }
-    $started = Invoke-RestMethod -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
+    $started = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
         -Body (@{ topic = 'Recent progress in solid-state batteries: cite two sources and summarize briefly.' } | ConvertTo-Json)
     if (-not $started.thread_id) { throw 'No research thread was returned.' }
-    $review = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'review'
+    $review = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'review' -WebSession $WebSession
     if (-not $review.draft -or @($review.sources).Count -eq 0) { throw 'Draft or research sources are missing.' }
-    $null = Invoke-RestMethod -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
+    $null = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
         -ContentType 'application/json' -Body '{"approved":true}' -TimeoutSec 90
-    $final = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'finalized'
+    $final = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'finalized' -WebSession $WebSession
     if (-not $final.final_report) { throw 'Final report is empty.' }
     Write-Host "Verified research, human review, and finalization: $($started.thread_id)"
     return $started.thread_id
@@ -120,9 +123,9 @@ try {
     $null = Invoke-Gcloud -Arguments (@('run', 'deploy', $service) + $scope + @(
         "--image=$image", '--no-traffic', "--tag=$tag", '--quiet',
         '--memory=1Gi', '--timeout=300', '--min-instances=1', '--max-instances=1',
-        '--concurrency=1', '--no-cpu-throttling',
+        '--concurrency=8', '--session-affinity', '--no-cpu-throttling',
         "--service-account=$service@$ProjectId.iam.gserviceaccount.com",
-        "--update-env-vars=MODEL_PROVIDER=vertexai,GCP_PROJECT_ID=$ProjectId,GCP_LOCATION=$ModelLocation,VERTEX_CHAT_MODEL=$Model,RESEARCHER_MODEL_OVERRIDE=$Model,ANALYST_MODEL_OVERRIDE=$Model,WRITER_MODEL_OVERRIDE=$Model,LLM_REQUEST_TIMEOUT=60,LLM_MAX_RETRIES=1"
+        "--update-env-vars=MODEL_PROVIDER=vertexai,GCP_PROJECT_ID=$ProjectId,GCP_LOCATION=$ModelLocation,VERTEX_CHAT_MODEL=$Model,RESEARCHER_MODEL_OVERRIDE=$Model,ANALYST_MODEL_OVERRIDE=$Model,WRITER_MODEL_OVERRIDE=$Model,LLM_REQUEST_TIMEOUT=60,LLM_MAX_RETRIES=1,TYPESAFE_MODEL=$TypeSafeModel"
     ))
 
     $candidate = Get-Service
