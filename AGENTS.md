@@ -1,5 +1,20 @@
 # Project guide
 
+## gstack
+
+Codex skills are installed locally under `.agents/skills/`, with names such as
+`gstack`, `gstack-review`, `gstack-investigate`, and `gstack-browse`. Read the
+generated Codex definitions there when invoked. The source checkout under
+`.gstack/source/` also contains Claude definitions; use the Codex definitions
+for skill instructions.
+
+Run gstack helpers with `powershell -NoProfile -ExecutionPolicy Bypass -File
+scripts/gstack.ps1 run gstack-<helper> ...`, and browser commands with the same
+launcher using `browse <command> ...`. For a Git Bash tool call, first source
+`scripts/gstack-env.sh`; it selects the actual Git project, supplies Git Bash
+utilities, and configures project-local state. Do this in each new shell.
+See `GSTACK_SETUP.md` for setup and verification details.
+
 ## Setup and commands
 
 This is a Python >=3.13 FastAPI service managed with uv. Run these commands from

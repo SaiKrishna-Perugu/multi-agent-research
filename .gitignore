@@ -9,3 +9,7 @@ logs/
 checkpoints.sqlite*
 .coverage
 htmlcov/
+.gstack/
+.agents/skills/
+.claude/settings.local.json
+.context/
