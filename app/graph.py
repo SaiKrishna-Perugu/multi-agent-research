@@ -46,6 +46,19 @@ class ResearchState(TypedDict):
     final_report: str
     status: str
     review_action: str
+    citation_audit: dict
+
+
+@traceable(name="agent.auditor", run_type="chain")
+def auditor_node(state: ResearchState) -> dict:
+    from app.tools import audit_citations
+
+    draft = state.get("draft", "")
+    sources = state.get("sources", [])
+    audit = audit_citations(
+        draft, sources, revision_count=state.get("revision_count", 0)
+    )
+    return {"citation_audit": audit, "status": "drafted"}
 
 
 @traceable(name="agent.human_review", run_type="chain")
@@ -54,6 +67,7 @@ def human_review_node(state: ResearchState) -> ResearchState:
         {
             "draft": state["draft"],
             "revision_count": state["revision_count"],
+            "review_version": f"v{state['revision_count']}",
             "message": "Review the draft. Resume with {'approved': True} to "
             "finalize, or {'approved': False, 'feedback': '...'} to request changes.",
         }
@@ -91,15 +105,25 @@ def route_after_review(
 @traceable(name="agent.finalize", run_type="chain")
 def finalize_node(state: ResearchState) -> ResearchState:
     note = ""
-    if (
+    is_cap_forced = (
         state["status"] == "revision_requested"
         and state["revision_count"] > MAX_REVISIONS
-    ):
+    )
+    if is_cap_forced:
         note = (
             f"\n\n---\n*Note: maximum revision limit ({MAX_REVISIONS}) reached. "
             f"This is the most recent draft; further review is recommended.*"
         )
-    return {"final_report": state["draft"] + note, "status": "finalized"}
+    audit = dict(state.get("citation_audit") or {})
+    if is_cap_forced and audit:
+        audit["cap_warning"] = f"Maximum revision limit ({MAX_REVISIONS}) reached."
+        audit["audit_target"] = "pre_cap_draft"
+
+    return {
+        "final_report": state["draft"] + note,
+        "status": "finalized",
+        "citation_audit": audit,
+    }
 
 
 def build_graph():
@@ -108,13 +132,15 @@ def build_graph():
     graph.add_node("researcher", researcher_node)
     graph.add_node("analyst", analyst_node)
     graph.add_node("writer", writer_node)
+    graph.add_node("auditor", auditor_node)
     graph.add_node("human_review", human_review_node)
     graph.add_node("finalize", finalize_node)
 
     graph.set_entry_point("researcher")
     graph.add_edge("researcher", "analyst")
     graph.add_edge("analyst", "writer")
-    graph.add_edge("writer", "human_review")
+    graph.add_edge("writer", "auditor")
+    graph.add_edge("auditor", "human_review")
     graph.add_conditional_edges(
         "human_review",
         route_after_review,

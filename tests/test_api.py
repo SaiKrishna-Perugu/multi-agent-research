@@ -28,6 +28,10 @@ def _start(client, topic):
 
 
 def _review(client, thread_id, **payload):
+    if "review_version" not in payload:
+        r = client.get("/research/" + thread_id)
+        if r.status_code == 200:
+            payload["review_version"] = r.json().get("review_version", "v0")
     r = client.post("/research/" + thread_id + "/review", json=payload)
     assert r.status_code == 202, r.text
     return _await_thread(client, thread_id)
@@ -214,7 +218,10 @@ def test_concurrent_review_calls_only_one_is_accepted(mocked_client):
     results = []
 
     def submit():
-        r = mocked_client.post(f"/research/{thread_id}/review", json={"approved": True})
+        r = mocked_client.post(
+            f"/research/{thread_id}/review",
+            json={"approved": True, "review_version": "v0"},
+        )
         results.append(r.status_code)
 
     import threading
@@ -302,7 +309,8 @@ def test_sqlite_persistence_across_app_restarts(tmp_path, fake_agents, monkeypat
 
             # Resume and finalize in instance 2
             rev_res = client2.post(
-                f"/research/{thread_id}/review", json={"approved": True}
+                f"/research/{thread_id}/review",
+                json={"approved": True, "review_version": "v0"},
             )
             assert rev_res.status_code == 202
             assert _await_thread(client2, thread_id)["status"] == "finalized"
@@ -398,7 +406,9 @@ def test_review_action_automatically_inferred_as_research_gap_via_typesafe(
     assert started["sub_queries"] == ["q1", "q2"]
 
     # Client submits review without explicit action; TypeSafe infers "research_gap"
-    with patch("app.main.classify_review_intent", return_value="research_gap"):
+    with patch(
+        "app.typesafe_client.classify_review_intent", return_value="research_gap"
+    ):
         body = _review(
             mocked_client,
             thread_id,
@@ -411,3 +421,135 @@ def test_review_action_automatically_inferred_as_research_gap_via_typesafe(
     assert body["revision_count"] == 1
     assert body["awaiting_review"] is True
     assert "followup: missing crucial data on subsidies" in body["sub_queries"]
+
+
+def test_review_rejects_missing_review_version(mocked_client):
+    started = _start(mocked_client, "test topic")
+    thread_id = started["thread_id"]
+    r = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": True, "review_version": ""},
+    )
+    assert r.status_code == 409
+    assert "Stale or missing review version" in r.text
+
+
+def test_review_rejects_stale_review_version(mocked_client):
+    started = _start(mocked_client, "test topic")
+    thread_id = started["thread_id"]
+    r = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": True, "review_version": "v99"},
+    )
+    assert r.status_code == 409
+    assert "Stale or missing review version" in r.text
+
+
+def test_review_releases_claim_on_validation_failure(mocked_client):
+    started = _start(mocked_client, "test topic")
+    thread_id = started["thread_id"]
+
+    # Attempt with stale version fails with 409
+    r1 = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": True, "review_version": "stale"},
+    )
+    assert r1.status_code == 409
+
+    # Verify claim was released and subsequent valid review is admitted
+    from app.main import _jobs
+
+    assert _jobs.state(thread_id)["running"] is False
+    r2 = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": True, "review_version": "v0"},
+    )
+    assert r2.status_code == 202
+
+
+def test_active_run_admission_overload(mocked_client):
+    from app.main import _jobs
+
+    started = _start(mocked_client, "test topic")
+    assert started.get("thread_id")
+    # Simulate an active job in flight
+    assert _jobs.try_claim("simulated_active") == "ok"
+    try:
+        # Second job attempt should trigger overload (max_active_runs = 1)
+        r = mocked_client.post("/research", json={"topic": "another topic"})
+        assert r.status_code == 429
+        assert "System is at capacity" in r.text
+    finally:
+        _jobs.finish("simulated_active")
+
+    # After active job finishes, new job is admitted
+    r_ok = mocked_client.post("/research", json={"topic": "admitted topic"})
+    assert r_ok.status_code == 202
+
+
+def test_bounded_job_store_never_evicts_active_job():
+    from app.main import BoundedJobStore
+
+    store = BoundedJobStore(maxsize=10, max_active_runs=2)
+    assert store.try_claim("active_1") == "ok"
+
+    # Add 25 error entries to exceed maxsize
+    for i in range(25):
+        store.finish(f"err_{i}", error=f"error_{i}")
+
+    # Active job must NEVER have been evicted
+    assert "active_1" in store
+    assert store.state("active_1")["running"] is True
+    # Error entries bounded to maxsize
+    assert len(store._errors) == 10
+
+
+def test_start_research_rejects_whitespace_topic(mocked_client):
+    r = mocked_client.post("/research", json={"topic": "   \n\t  "})
+    assert r.status_code == 422
+
+
+def test_review_rejects_contradictory_and_invalid_actions(mocked_client):
+    started = _start(mocked_client, "test topic")
+    thread_id = started["thread_id"]
+
+    # approved True with revision action
+    r1 = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": True, "action": "revise", "review_version": "v0"},
+    )
+    assert r1.status_code == 422
+
+    # approved False with approve action
+    r2 = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": False, "action": "approve", "review_version": "v0"},
+    )
+    assert r2.status_code == 422
+
+    # invalid action string
+    r3 = mocked_client.post(
+        f"/research/{thread_id}/review",
+        json={"approved": False, "action": "invalid_action", "review_version": "v0"},
+    )
+    assert r3.status_code == 422
+
+
+def test_get_research_never_calls_audit_citations(mocked_client):
+    from unittest.mock import patch
+
+    started = _start(mocked_client, "audit test")
+    thread_id = started["thread_id"]
+
+    with (
+        patch("app.main.audit_citations")
+        if hasattr(__import__("app.main"), "audit_citations")
+        else patch("app.tools.audit_citations") as mock_audit
+    ):
+        r = mocked_client.get(f"/research/{thread_id}")
+        assert r.status_code == 200
+        # audit_citations must not be called during GET
+        mock_audit.assert_not_called()
+        body = r.json()
+        assert "citation_audit" in body
+        assert body["citation_audit"]["status"] in ("evaluated", "no_citations")

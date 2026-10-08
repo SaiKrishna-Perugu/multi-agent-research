@@ -171,6 +171,24 @@ def filter_search_passages(search_results: list, topic: str) -> list:
         return search_results
 
 
+def _sanitize_queries(
+    raw_queries: list | None, topic: str, max_count: int
+) -> list[str]:
+    """Validate, trim, and bound decomposed search queries."""
+    valid = []
+    if isinstance(raw_queries, list):
+        for q in raw_queries:
+            if isinstance(q, str):
+                cleaned = q.strip()
+                if cleaned:
+                    valid.append(cleaned[:200])
+            if len(valid) >= max_count:
+                break
+    if not valid:
+        valid = [topic[:200].strip()]
+    return valid
+
+
 @traceable(name="agent.researcher", run_type="chain")
 def researcher_node(state: dict) -> dict:
     llm = get_llm(temperature=0.2, model_override=config.RESEARCHER_MODEL_OVERRIDE)
@@ -214,13 +232,20 @@ def researcher_node(state: dict) -> dict:
             if not isinstance(sub_queries, list) or not sub_queries:
                 raise ValueError("empty or non-list response")
         except (json.JSONDecodeError, ValueError):
-            # Fall back to a single query using the raw topic -- degraded but
-            # not a failure. A malformed decomposition shouldn't abort the whole
-            # research pass when searching the raw topic still produces useful results.
             sub_queries = [state["topic"]]
+
+    sub_queries = _sanitize_queries(
+        sub_queries, state["topic"], config.MAX_RESEARCH_QUERIES
+    )
 
     search_results = run_multi_search(sub_queries)
     search_results = filter_search_passages(search_results, state["topic"])
+
+    total_usable_items = sum(len(getattr(r, "results", [])) for r in search_results)
+    if total_usable_items == 0:
+        raise RuntimeError(
+            f"No usable search evidence retrieved for topic: '{state['topic']}'. Cannot synthesize report without sources."
+        )
 
     results_text = "\n\n".join(
         f"Query: {r.query}\n"
@@ -250,6 +275,10 @@ def researcher_node(state: dict) -> dict:
     else:
         combined_notes = new_notes
 
+    # Keep total notes within bounded limit
+    if len(combined_notes) > 25000:
+        combined_notes = combined_notes[-25000:]
+
     existing_sources = state.get("sources", [])
     seen_urls = {
         s.get("url") for s in existing_sources if isinstance(s, dict) and s.get("url")
@@ -262,7 +291,13 @@ def researcher_node(state: dict) -> dict:
             url = item.get("url", "")
             if url and url not in seen_urls:
                 seen_urls.add(url)
-                all_sources.append({"title": item.get("title", ""), "url": url})
+                all_sources.append(
+                    {
+                        "title": item.get("title", ""),
+                        "url": url,
+                        "content": item.get("content", "")[:1200],
+                    }
+                )
 
     return {
         "sub_queries": sub_queries,

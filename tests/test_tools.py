@@ -58,12 +58,22 @@ def test_run_search_validates_tavily_config_at_runtime(monkeypatch):
 def test_audit_citations_validates_links_and_flags_hallucinations():
     from app.tools import audit_citations
 
-    # Empty draft returns 1.0 precision and empty lists
+    # Empty draft returns None precision (not evaluated) and empty lists
     empty_result = audit_citations("No links here.", [])
     assert empty_result["total_citations"] == 0
-    assert empty_result["precision"] == 1.0
+    assert empty_result["precision"] is None
+    assert empty_result["status"] == "no_citations"
     assert empty_result["grounded"] == []
     assert empty_result["ungrounded"] == []
+
+    # Valid zero precision: citations exist but none are grounded
+    zero_draft = "Claim ([Fake](https://unmatched.com/a))."
+    zero_result = audit_citations(
+        zero_draft, [{"title": "Real", "url": "https://real.com"}]
+    )
+    assert zero_result["total_citations"] == 1
+    assert zero_result["grounded_count"] == 0
+    assert zero_result["precision"] == 0.0
 
     # Mixed draft with grounded, trailing-slash matching, and ungrounded links
     draft = (

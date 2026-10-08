@@ -25,13 +25,43 @@ def test_researcher_falls_back_to_single_query_on_bad_json():
         patch("app.agents.get_llm", return_value=bad_decompose_llm),
         patch(
             "app.agents.run_multi_search",
-            return_value=[SearchResult(query="fallback topic", results=[], answer="")],
+            return_value=[
+                SearchResult(
+                    query="fallback topic",
+                    results=[
+                        {
+                            "title": "Fallback",
+                            "url": "https://example.com/fb",
+                            "content": "Evidence",
+                        }
+                    ],
+                    answer="",
+                )
+            ],
         ) as mock_search,
     ):
         result = researcher_node({"topic": "fallback topic"})
 
     mock_search.assert_called_once_with(["fallback topic"])
     assert result["status"] == "researched"
+
+
+def test_researcher_fails_when_all_searches_return_empty():
+    """R06: If all search queries fail or return no usable results, the researcher
+    must visibly fail instead of synthesizing without evidence."""
+    llm = _fake_llm(json.dumps(["q1", "q2"]))
+    with (
+        patch("app.agents.get_llm", return_value=llm),
+        patch(
+            "app.agents.run_multi_search",
+            return_value=[
+                SearchResult(query="q1", results=[], answer=""),
+                SearchResult(query="q2", results=[], answer=""),
+            ],
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="No usable search evidence retrieved"):
+            researcher_node({"topic": "nonexistent topic"})
 
 
 def test_researcher_uses_decomposed_queries_when_valid():
@@ -311,3 +341,21 @@ def test_filter_search_passages_preserves_at_least_one_item(monkeypatch):
     # Safety fallback preserves at least 1 item rather than an empty list
     assert len(filtered[0].results) == 1
     assert filtered[0].results[0]["title"] == "Marginal Source"
+
+
+def test_sanitize_queries_validation():
+    from app.agents import _sanitize_queries
+
+    # Handles non-list, empty list, whitespace, non-strings, overlong strings, and caps count
+    assert _sanitize_queries(None, "default topic", 4) == ["default topic"]
+    assert _sanitize_queries([], "default topic", 4) == ["default topic"]
+    assert _sanitize_queries(["   ", 123, None], "default topic", 4) == [
+        "default topic"
+    ]
+
+    raw = ["  first query  ", "a" * 300, "valid three", "valid four", "extra five"]
+    sanitized = _sanitize_queries(raw, "default topic", 3)
+    assert len(sanitized) == 3
+    assert sanitized[0] == "first query"
+    assert len(sanitized[1]) == 200
+    assert sanitized[2] == "valid three"

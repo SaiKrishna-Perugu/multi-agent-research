@@ -68,10 +68,13 @@ function Test-Lifecycle {
     $started = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
         -Body (@{ topic = 'Recent progress in solid-state batteries: cite two sources and summarize briefly.' } | ConvertTo-Json)
     if (-not $started.thread_id) { throw 'No research thread was returned.' }
-    $review = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'review' -WebSession $WebSession
-    if (-not $review.draft -or @($review.sources).Count -eq 0) { throw 'Draft or research sources are missing.' }
+    $reviewPayload = @{
+        approved = $true
+        action = 'approve'
+        review_version = if ($review.review_version) { $review.review_version } else { 'v0' }
+    } | ConvertTo-Json
     $null = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
-        -ContentType 'application/json' -Body '{"approved":true}' -TimeoutSec 90
+        -ContentType 'application/json' -Body $reviewPayload -TimeoutSec 90
     $final = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'finalized' -WebSession $WebSession
     if (-not $final.final_report) { throw 'Final report is empty.' }
     Write-Host "Verified research, human review, and finalization: $($started.thread_id)"

@@ -17,12 +17,16 @@ _logger = logging.getLogger("config")
 def _get_secret(env_name: str, default: str = "") -> str:
     """Env var first (local dev); falls back to GCP Secret Manager if
     GCP_PROJECT_ID is set."""
-    value = os.getenv(env_name)
-    if value:
-        return value
+    if env_name in os.environ:
+        return os.environ[env_name]
 
     project_id = os.getenv("GCP_PROJECT_ID")
     if project_id:
+        if (
+            env_name == "API_KEY"
+            and os.getenv("AUTH_USE_SECRET_MANAGER", "false").lower() != "true"
+        ):
+            return default
         try:
             from google.cloud import secretmanager
 
@@ -70,10 +74,15 @@ MAX_RESEARCH_QUERIES = int(
     os.getenv("MAX_RESEARCH_QUERIES", "4")
 )  # sub-queries per report
 
-# --- API auth / rate limiting / CORS -------------------------------------
+# --- API auth / rate limiting / CORS / Concurrency -----------------------
 API_KEY = _get_secret("API_KEY")
 RATE_LIMIT = os.getenv("RATE_LIMIT", "10/minute")
-CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",")]
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "*").split(",")
+    if origin.strip()
+]
+MAX_ACTIVE_RUNS = int(os.getenv("MAX_ACTIVE_RUNS", "1"))
 
 # --- LangSmith tracing --------------------------------------------------------
 LANGSMITH_TRACING = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"

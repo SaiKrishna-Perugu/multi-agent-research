@@ -1,10 +1,11 @@
 .venv/
 __pycache__/
 *.pyc
-.env
-.env.example
+.env*
 logs/
 checkpoints.sqlite*
+*.sqlite*
+*.db
 .git/
 .gitignore
 .python-version
@@ -15,4 +16,8 @@ tests/
 .uv-cache/
 .agents/
 .freebuff/
+.gstack/
+.context/
+.claude/
 *.md
+

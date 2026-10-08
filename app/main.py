@@ -19,6 +19,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from datetime import UTC
 from pathlib import Path
@@ -30,15 +31,14 @@ from fastapi.staticfiles import StaticFiles
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app import config, metrics
 from app.graph import MAX_REVISIONS, build_graph
-from app.tools import audit_citations
-from app.typesafe_client import classify_review_intent, classify_runtime_error
+from app.typesafe_client import classify_runtime_error
 
 # --- Structured logging ------------------------------------------------------
 LOG_PATH = Path("logs")
@@ -85,9 +85,11 @@ limiter = Limiter(key_func=_get_client_identity)
 app = FastAPI(title="Multi-Agent Research API", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+allow_all_origins = "*" in config.CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
+    allow_credentials=not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -112,11 +114,41 @@ class ResearchRequest(BaseModel):
         examples=["The current state of small modular nuclear reactors"],
     )
 
+    @field_validator("topic")
+    @classmethod
+    def validate_topic(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Topic cannot be empty or whitespace only.")
+        return stripped
+
 
 class ReviewRequest(BaseModel):
     approved: bool
-    feedback: str = ""
+    feedback: str = Field(default="", max_length=2000)
     action: str = ""  # "approve", "revise", or "research_gap"
+    review_version: str = ""
+
+    @field_validator("feedback")
+    @classmethod
+    def validate_feedback(cls, v: str) -> str:
+        return v.strip()
+
+    @model_validator(mode="after")
+    def validate_action_consistency(self) -> "ReviewRequest":
+        if self.action and self.action not in {"approve", "revise", "research_gap"}:
+            raise ValueError(
+                f"Invalid review action: '{self.action}'. Must be 'approve', 'revise', or 'research_gap'."
+            )
+        if self.approved and self.action in {"revise", "research_gap"}:
+            raise ValueError(
+                "Contradictory review decision: approved is True but revision action was requested."
+            )
+        if not self.approved and self.action == "approve":
+            raise ValueError(
+                "Contradictory review decision: approved is False but action is 'approve'."
+            )
+        return self
 
 
 # --- Background job tracking ---------------------------------------------------
@@ -126,50 +158,88 @@ class ReviewRequest(BaseModel):
 #
 # In-process and lost on restart -- same tradeoff as metrics.py. The checkpoint
 # itself is durable in SQLite; only the "is it running / did it blow up" flag is
-# not. A restart mid-run leaves a thread paused at its last completed node,
-class BoundedJobStore(dict):
-    """Bounded, thread-safe store for background task execution state and error flags."""
+# not. A restart mid-run leaves a thread paused at its last completed node.
+class BoundedJobStore:
+    """Bounded, thread-safe store for background task execution state and error flags.
 
-    def __init__(self, maxsize: int = 1000):
-        super().__init__()
+    Separates active running claims from bounded finished error history so that
+    error history eviction can NEVER evict or cancel an active running job.
+    Enforces admission limits (max_active_runs) to prevent runaway concurrency.
+    """
+
+    def __init__(self, maxsize: int = 1000, max_active_runs: int = 1):
         self._maxsize = maxsize
+        self._max_active_runs = max_active_runs
         self._lock = threading.Lock()
+        self._active: dict[str, float] = {}
+        self._errors: OrderedDict[str, str] = OrderedDict()
 
-    def start(self, thread_id: str) -> None:
+    def try_claim(self, thread_id: str) -> str:
+        """Attempt to claim execution slot for a thread.
+        Returns:
+            'ok' if successfully claimed.
+            'already_running' if this thread is already running.
+            'overloaded' if active run capacity has been reached.
+        """
         with self._lock:
-            self[thread_id] = {"running": True, "error": ""}
+            if thread_id in self._active:
+                return "already_running"
+            if len(self._active) >= self._max_active_runs:
+                return "overloaded"
+            self._active[thread_id] = time.perf_counter()
+            self._errors.pop(thread_id, None)
+            return "ok"
 
-    def try_claim(self, thread_id: str) -> bool:
+    def release_claim(self, thread_id: str) -> None:
+        """Release an active claim without recording an error."""
         with self._lock:
-            if self.get(thread_id, {}).get("running"):
-                return False
-            self[thread_id] = {"running": True, "error": ""}
-            return True
+            self._active.pop(thread_id, None)
 
     def finish(self, thread_id: str, error: str = "") -> None:
         with self._lock:
+            self._active.pop(thread_id, None)
             if error:
-                self[thread_id] = {"running": False, "error": error}
-                if len(self) > self._maxsize:
-                    oldest = next(iter(self))
-                    self.pop(oldest, None)
+                self._errors[thread_id] = error
+                self._errors.move_to_end(thread_id)
+                while len(self._errors) > self._maxsize:
+                    self._errors.popitem(last=False)
             else:
-                self.pop(thread_id, None)
+                self._errors.pop(thread_id, None)
 
     def state(self, thread_id: str) -> dict:
         with self._lock:
-            return dict(self.get(thread_id, {"running": False, "error": ""}))
+            return {
+                "running": thread_id in self._active,
+                "error": self._errors.get(thread_id, ""),
+            }
+
+    def __contains__(self, thread_id: object) -> bool:
+        with self._lock:
+            return thread_id in self._active or thread_id in self._errors
+
+    def pop(self, thread_id: str, default=None):
+        with self._lock:
+            val = self._active.pop(thread_id, None)
+            err = self._errors.pop(thread_id, None)
+            if val is not None or err is not None:
+                return {"running": val is not None, "error": err or ""}
+            return default
+
+    def clear(self) -> None:
+        with self._lock:
+            self._active.clear()
+            self._errors.clear()
 
 
-_jobs = BoundedJobStore(maxsize=1000)
+_jobs = BoundedJobStore(maxsize=1000, max_active_runs=config.MAX_ACTIVE_RUNS)
 
 
-def _job_start(thread_id: str) -> None:
-    _jobs.start(thread_id)
-
-
-def _job_try_claim(thread_id: str) -> bool:
+def _job_try_claim(thread_id: str) -> str:
     return _jobs.try_claim(thread_id)
+
+
+def _job_release_claim(thread_id: str) -> None:
+    _jobs.release_claim(thread_id)
 
 
 def _job_finish(thread_id: str, error: str = "") -> None:
@@ -259,6 +329,7 @@ class ResearchResponse(BaseModel):
     sources: list = Field(default_factory=list)
     awaiting_review: bool
     citation_audit: dict = Field(default_factory=dict)
+    review_version: str = ""
 
 
 def _state_to_response(
@@ -269,9 +340,19 @@ def _state_to_response(
     running: bool = False,
     error: str = "",
 ) -> ResearchResponse:
-    report_text = state.get("final_report") or state.get("draft") or ""
-    sources = state.get("sources", [])
-    audit = audit_citations(report_text, sources) if report_text and sources else {}
+    audit = state.get("citation_audit")
+    if not audit:
+        audit = {
+            "status": "not_evaluated",
+            "verifier": "none",
+            "total_citations": 0,
+            "grounded_count": 0,
+            "ungrounded_count": 0,
+            "precision": None,
+            "grounded": [],
+            "ungrounded": [],
+        }
+    review_version = f"v{state.get('revision_count', 0)}" if interrupted else ""
     return ResearchResponse(
         thread_id=thread_id,
         status=state.get("status", "unknown"),
@@ -282,9 +363,10 @@ def _state_to_response(
         final_report=state.get("final_report", ""),
         revision_count=state.get("revision_count", 0),
         sub_queries=state.get("sub_queries", []),
-        sources=sources,
+        sources=state.get("sources", []),
         awaiting_review=interrupted,
         citation_audit=audit,
+        review_version=review_version,
     )
 
 
@@ -337,6 +419,18 @@ async def start_research(
     """Accept the topic and return a thread_id immediately (202). The graph runs
     in the background; poll GET /research/{thread_id} for per-node progress."""
     thread_id = str(uuid.uuid4())
+    claim_status = _job_try_claim(thread_id)
+    if claim_status == "overloaded":
+        raise HTTPException(
+            status_code=429,
+            detail=f"System is at capacity. Only {config.MAX_ACTIVE_RUNS} active research run allowed at a time.",
+        )
+    if claim_status != "ok":
+        raise HTTPException(
+            status_code=409,
+            detail="This research thread is already running.",
+        )
+
     metrics.record_report_started()
 
     initial_state = {
@@ -351,9 +445,9 @@ async def start_research(
         "final_report": "",
         "status": "started",
         "review_action": "",
+        "citation_audit": {},
     }
 
-    _job_start(thread_id)
     background.add_task(
         _run_graph, request.app.state.graph, thread_id, initial_state, body.topic
     )
@@ -436,66 +530,76 @@ async def review_research(
 ) -> ResearchResponse:
     """Accept the decision and return immediately (202). A revision runs the
     writer again, which is slow; poll GET /research/{thread_id} for progress."""
-    thread_config = {"configurable": {"thread_id": thread_id}}
-    snapshot = await asyncio.to_thread(request.app.state.graph.get_state, thread_config)
-    if not snapshot.values:
+    claim_status = _job_try_claim(thread_id)
+    if claim_status == "overloaded":
         raise HTTPException(
-            status_code=404, detail=f"No research thread found for id {thread_id}"
+            status_code=429,
+            detail=f"System is at capacity. Only {config.MAX_ACTIVE_RUNS} active research run allowed at a time.",
         )
-
-    if "human_review" not in snapshot.next:
-        # See get_research's comment: pinning to the specific next node (not
-        # just "next is non-empty") is what makes this correct even after a
-        # restart wipes job["error"] for a thread that failed before, or
-        # during, an interrupt.
-        raise HTTPException(
-            status_code=400,
-            detail="This report is not awaiting review (already finalized, failed, or not yet started).",
-        )
-
-    if _is_review_timed_out(snapshot):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Review window ({config.REVIEW_TIMEOUT_MINUTES} minutes) has expired for this report.",
-        )
-
-    if not _job_try_claim(thread_id):
+    if claim_status != "ok":
         raise HTTPException(
             status_code=409,
             detail="This report is still being generated. Wait for it to finish.",
         )
 
-    if not body.approved:
-        metrics.record_revision_requested()
+    try:
+        thread_config = {"configurable": {"thread_id": thread_id}}
+        snapshot = await asyncio.to_thread(
+            request.app.state.graph.get_state, thread_config
+        )
+        if not snapshot.values:
+            raise HTTPException(
+                status_code=404, detail=f"No research thread found for id {thread_id}"
+            )
 
-    action = body.action
-    if not body.approved and not action and body.feedback:
-        action = classify_review_intent(body.feedback, snapshot.values.get("draft", ""))
-    if not action:
-        action = "approve" if body.approved else "revise"
+        if "human_review" not in snapshot.next:
+            raise HTTPException(
+                status_code=400,
+                detail="This report is not awaiting review (already finalized, failed, or not yet started).",
+            )
 
-    resume_payload = Command(
-        resume={
-            "approved": body.approved,
-            "feedback": body.feedback,
-            "action": action,
-        }
-    )
-    background.add_task(
-        _run_graph,
-        request.app.state.graph,
-        thread_id,
-        resume_payload,
-        snapshot.values.get("topic", ""),
-    )
+        if _is_review_timed_out(snapshot):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Review window ({config.REVIEW_TIMEOUT_MINUTES} minutes) has expired for this report.",
+            )
 
-    logger.info(
-        json.dumps(
-            {
-                "event": "review_accepted",
-                "thread_id": thread_id,
+        expected_version = f"v{snapshot.values.get('revision_count', 0)}"
+        if not body.review_version or body.review_version != expected_version:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Stale or missing review version '{body.review_version}'. Current review version is '{expected_version}'.",
+            )
+
+        if not body.approved:
+            metrics.record_revision_requested()
+
+        resume_payload = Command(
+            resume={
                 "approved": body.approved,
+                "feedback": body.feedback,
+                "action": body.action,
             }
         )
-    )
-    return _state_to_response(thread_id, snapshot.values, False, running=True)
+        background.add_task(
+            _run_graph,
+            request.app.state.graph,
+            thread_id,
+            resume_payload,
+            snapshot.values.get("topic", ""),
+        )
+
+        logger.info(
+            json.dumps(
+                {
+                    "event": "review_accepted",
+                    "thread_id": thread_id,
+                    "approved": body.approved,
+                    "review_version": body.review_version,
+                }
+            )
+        )
+        return _state_to_response(thread_id, snapshot.values, False, running=True)
+    except Exception:
+        _job_release_claim(thread_id)
+        raise

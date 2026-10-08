@@ -79,7 +79,7 @@ def run_multi_search(queries: list) -> list:
         return list(pool.map(_safe, queries))
 
 
-def audit_citations(draft: str, sources: list[dict]) -> dict:
+def audit_citations(draft: str, sources: list[dict], revision_count: int = 0) -> dict:
     """Audit inline markdown citations against retrieved sources.
     Extracts [text](url) links, checks scheme validity, and flags ungrounded URLs.
     When TypeSafe is available, performs semantic grounding verification on claims."""
@@ -105,8 +105,9 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
             continue
         valid_links.append((text, url))
 
-    # If TypeSafe is available and we have valid links and sources, perform semantic verification
-    if config.is_typesafe_available() and valid_links and sources:
+    # If TypeSafe is available and we have valid links and sources with content, perform semantic verification
+    has_content = any(isinstance(s, dict) and s.get("content") for s in sources)
+    if config.is_typesafe_available() and valid_links and sources and has_content:
         try:
             from typesafe_sdk import Choice
 
@@ -163,7 +164,7 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
                             }
                         )
                 total = len(found_links)
-                precision = round(len(grounded) / total, 4) if total > 0 else 1.0
+                precision = round(len(grounded) / total, 4) if total > 0 else None
                 return {
                     "total_citations": total,
                     "grounded_count": len(grounded),
@@ -172,6 +173,8 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
                     "grounded": grounded,
                     "ungrounded": ungrounded,
                     "verifier": "typesafe",
+                    "status": "evaluated" if total > 0 else "no_citations",
+                    "revision_count": revision_count,
                 }
         except Exception as exc:
             logging.getLogger("tools").warning(
@@ -187,7 +190,7 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
             ungrounded.append({"text": text, "url": url, "reason": "unmatched_source"})
 
     total = len(found_links)
-    precision = round(len(grounded) / total, 4) if total > 0 else 1.0
+    precision = round(len(grounded) / total, 4) if total > 0 else None
 
     return {
         "total_citations": total,
@@ -196,4 +199,7 @@ def audit_citations(draft: str, sources: list[dict]) -> dict:
         "precision": precision,
         "grounded": grounded,
         "ungrounded": ungrounded,
+        "verifier": "url_match" if total > 0 else "none",
+        "status": "evaluated" if total > 0 else "no_citations",
+        "revision_count": revision_count,
     }

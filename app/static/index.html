@@ -489,6 +489,43 @@
         .empty-state h3 { font-family: 'Source Serif 4', serif; font-size: 17px; color: var(--ink); margin-bottom: 6px; font-weight: 600; }
         .empty-state p { font-size: 13px; line-height: 1.6; max-width: 340px; margin: 0 auto; }
 
+        /* --- Accessibility & Utilities --- */
+        .visually-hidden {
+            position: absolute !important;
+            width: 1px !important;
+            height: 1px !important;
+            padding: 0 !important;
+            margin: -1px !important;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important;
+            white-space: nowrap !important;
+            border: 0 !important;
+        }
+
+        .report-panel { min-width: 0; }
+        .report-body {
+            overflow-wrap: break-word;
+            word-break: break-word;
+        }
+        .report-body table {
+            display: block;
+            width: 100%;
+            overflow-x: auto;
+            border-collapse: collapse;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+            .status-dot.pulse, .node-icon.active, .node-icon.awaiting, .spinner {
+                animation: none !important;
+            }
+        }
+
         /* --- Mobile --- */
         @media (max-width: 640px) {
             header { padding: 12px 18px; }
@@ -540,6 +577,7 @@
         <div class="surface search-panel">
             <div class="search-row">
                 <div class="topic-field">
+                    <label for="topicInput" class="visually-hidden">Research Topic</label>
                     <input type="text" id="topicInput" maxlength="500" placeholder="Enter a research topic (e.g. current state of small modular nuclear reactors)&hellip;" autocomplete="off">
                 </div>
                 <button class="btn btn-primary" id="startBtn" onclick="startResearch()">
@@ -557,6 +595,7 @@
                     <button type="button" class="topic-chip" onclick="setTopic('Groq LPU vs NVIDIA GPU inference throughput and latency')">Groq LPU</button>
                 </div>
                 <div class="lookup-row">
+                    <label for="threadIdInput" class="visually-hidden">Resume by Thread ID</label>
                     <input type="text" id="threadIdInput" placeholder="Resume by thread_id&hellip;">
                     <button class="btn btn-text" onclick="loadThread()">Load Thread</button>
                 </div>
@@ -601,7 +640,9 @@
                 <div class="review-title">Human Review Required</div>
                 <span class="revision-badge" id="revisionBadge">Revision 0 of 3</span>
             </div>
+            <p class="review-warning" id="revisionCapWarning" style="display:none; color: var(--warn); font-size: 12px; font-weight: 600; margin-bottom: 8px;">Final revision pass before automatic finalization.</p>
             <p class="review-copy">Review the generated draft below. Approve to finalize, request textual revisions, or trigger a targeted research gap re-query.</p>
+            <label for="feedbackInput" class="visually-hidden">Reviewer guidance or feedback</label>
             <textarea class="review-textarea" id="feedbackInput" placeholder="Optional reviewer guidance (e.g. 'investigate levelized cost of energy comparisons and supply chain risks')&hellip;"></textarea>
             <div class="review-actions">
                 <button class="btn btn-text" onclick="submitReview(false, 'revise')">
@@ -623,13 +664,14 @@
             <div class="surface report-panel">
                 <div class="report-top">
                     <h2 id="reportHeadline">Research Workspace</h2>
-                    <div class="report-tabs">
-                        <button class="tab-btn active" id="tabRendered" onclick="switchTab('rendered')">Rendered</button>
-                        <button class="tab-btn" id="tabRaw" onclick="switchTab('raw')">Raw</button>
+                    <div class="report-tabs" role="tablist" aria-label="Report views">
+                        <button class="tab-btn active" id="tabRendered" role="tab" aria-selected="true" aria-controls="reportDisplay" onclick="switchTab('rendered')">Rendered</button>
+                        <button class="tab-btn" id="tabRaw" role="tab" aria-selected="false" aria-controls="rawDisplay" onclick="switchTab('raw')">Raw</button>
+                        <button class="tab-btn" id="copyRawBtn" role="button" title="Copy markdown to clipboard" onclick="copyRawMarkdown()">Copy</button>
                     </div>
                 </div>
 
-                <div id="reportDisplay">
+                <div id="reportDisplay" role="tabpanel" aria-labelledby="tabRendered">
                     <div class="empty-state">
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
                             <circle cx="11" cy="11" r="6.5"></circle>
@@ -640,14 +682,14 @@
                     </div>
                 </div>
 
-                <div class="raw-text" id="rawDisplay"></div>
+                <div class="raw-text" id="rawDisplay" role="tabpanel" aria-labelledby="tabRaw" hidden></div>
             </div>
 
             <div class="sidebar-stack">
                 <div class="surface side-card" id="citationAuditCard" style="display: none;">
                     <div class="audit-head">
-                        <h3 style="margin-bottom:0;">Grounding Verifier</h3>
-                        <span class="audit-badge" id="auditPrecision">100% Grounded</span>
+                        <h3 style="margin-bottom:0;" id="auditCardTitle">Citation Audit</h3>
+                        <span class="audit-badge" id="auditPrecision">Not Evaluated</span>
                     </div>
                     <div class="audit-grid">
                         <div class="audit-box">
@@ -656,9 +698,10 @@
                         </div>
                         <div class="audit-box">
                             <div class="audit-value" id="auditUngrounded" style="color: var(--ok);">0</div>
-                            <div class="audit-label">Hallucinations</div>
+                            <div class="audit-label" id="auditUngroundedLabel">Unmatched</div>
                         </div>
                     </div>
+                    <div id="auditMethodNotice" style="font-size: 10px; color: var(--text-dim); margin-top: 8px; text-align: center;">URL Provenance Matcher</div>
                 </div>
 
                 <div class="surface side-card">
@@ -669,7 +712,7 @@
                 </div>
 
                 <div class="surface side-card">
-                    <h3>Verified Sources</h3>
+                    <h3>Retrieved Sources</h3>
                     <div id="sourcesContainer">
                         <p style="font-size: 12px; color: var(--text-dim);">No citations extracted yet.</p>
                     </div>
@@ -680,6 +723,9 @@
 
     <script>
         let currentThreadId = null;
+        let currentReviewVersion = '';
+        let currentOpToken = 0;
+        let activeAbortController = null;
         let isProcessing = false;
         let pollTimer = null;
         let elapsedTimer = null;
@@ -695,9 +741,19 @@
             finalized: 'Report finalized.',
         };
 
+        function beginOperation() {
+            if (activeAbortController) {
+                try { activeAbortController.abort(); } catch {}
+            }
+            activeAbortController = new AbortController();
+            currentOpToken += 1;
+            return { token: currentOpToken, signal: activeAbortController.signal };
+        }
+
         function setBusy(busy) {
             isProcessing = busy;
-            document.getElementById('startBtn').disabled = busy;
+            const startBtn = document.getElementById('startBtn');
+            if (startBtn) startBtn.disabled = busy;
         }
 
         function stopElapsed() {
@@ -748,8 +804,9 @@
                 document.getElementById('reportDisplay').replaceChildren(wrap);
                 startElapsed();
             }
-            line.textContent = STAGE_COPY[status] || 'Working...';
-            document.getElementById('pipelineStatusLine').textContent = STAGE_COPY[status] || 'Working...';
+            const copy = STAGE_COPY[status] || 'Working...';
+            line.textContent = copy;
+            document.getElementById('pipelineStatusLine').textContent = copy;
         }
 
         function showError(message) {
@@ -783,31 +840,39 @@
             qp.style.color = 'var(--text-dim)';
             qp.textContent = 'No queries generated yet.';
             const cp = qp.cloneNode(true);
-            cp.textContent = 'No citations extracted yet.';
+            cp.textContent = 'No sources retrieved yet.';
             q.append(qp);
             c.append(cp);
             document.getElementById('rawDisplay').textContent = '';
         }
 
-        async function pollThread(threadId) {
+        async function pollThread(threadId, token) {
+            if (token !== currentOpToken) return;
             try {
                 const r = await fetch(`/research/${encodeURIComponent(threadId)}`);
+                if (token !== currentOpToken) return;
                 if (!r.ok) throw new Error(await errorMessage(r));
                 const data = await r.json();
+                if (token !== currentOpToken) return;
 
-                if (data.error) { setBusy(false); showError(data.error); return; }
+                if (data.error) {
+                    setBusy(false);
+                    showError(data.error);
+                    return;
+                }
 
                 updatePipelineUI(data.status, data.awaiting_review, data.revision_count, data.running);
 
                 if (data.running) {
                     showWorking(data.status);
-                    pollTimer = setTimeout(() => pollThread(threadId), 1500);
+                    pollTimer = setTimeout(() => pollThread(threadId, token), 1500);
                     return;
                 }
                 stopPolling();
                 setBusy(false);
                 renderResponse(data);
             } catch (err) {
+                if (token !== currentOpToken) return;
                 setBusy(false);
                 showError(err.message);
             }
@@ -825,15 +890,36 @@
 
             if (type === 'rendered') {
                 rendered.style.display = 'block';
+                rendered.removeAttribute('hidden');
                 raw.style.display = 'none';
+                raw.setAttribute('hidden', '');
                 tabRendered.classList.add('active');
+                tabRendered.setAttribute('aria-selected', 'true');
                 tabRaw.classList.remove('active');
+                tabRaw.setAttribute('aria-selected', 'false');
             } else {
                 rendered.style.display = 'none';
+                rendered.setAttribute('hidden', '');
                 raw.style.display = 'block';
+                raw.removeAttribute('hidden');
                 tabRendered.classList.remove('active');
+                tabRendered.setAttribute('aria-selected', 'false');
                 tabRaw.classList.add('active');
+                tabRaw.setAttribute('aria-selected', 'true');
             }
+        }
+
+        function copyRawMarkdown() {
+            const raw = document.getElementById('rawDisplay').textContent;
+            if (!raw) return;
+            const btn = document.getElementById('copyRawBtn');
+            navigator.clipboard.writeText(raw).then(() => {
+                const prev = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = prev; }, 1800);
+            }).catch(() => {
+                alert('Could not copy markdown to clipboard.');
+            });
         }
 
         function updatePipelineUI(status, awaitingReview, revisionCount, running) {
@@ -894,6 +980,7 @@
             }
             if (isProcessing) return;
 
+            const { token, signal } = beginOperation();
             switchTab('rendered');
             setBusy(true);
             document.getElementById('reviewBanner').style.display = 'none';
@@ -902,26 +989,39 @@
             stopPolling();
             showWorking('started');
 
+            const timeoutId = setTimeout(() => {
+                if (token === currentOpToken && activeAbortController) activeAbortController.abort();
+            }, 20000);
+
             try {
                 const response = await fetch('/research', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ topic: topic })
+                    body: JSON.stringify({ topic: topic }),
+                    signal
                 });
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
+
                 if (!response.ok) throw new Error(await errorMessage(response));
 
                 const data = await response.json();
+                if (token !== currentOpToken) return;
+
                 currentThreadId = data.thread_id;
                 document.getElementById('threadIdInput').value = currentThreadId;
-                pollThread(currentThreadId);
+                pollThread(currentThreadId, token);
             } catch (err) {
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
                 setBusy(false);
-                showError(err.message);
+                showError(err.name === 'AbortError' ? 'Research launch timed out after 20s. Please retry.' : err.message);
             }
         }
 
         async function loadThread() {
-            const threadId = document.getElementById('threadIdInput').value.trim();
+            const threadIdInput = document.getElementById('threadIdInput');
+            const threadId = threadIdInput.value.trim();
             if (!threadId) {
                 alert('Please enter a Thread ID.');
                 return;
@@ -931,65 +1031,101 @@
                 return;
             }
 
+            const { token, signal } = beginOperation();
+            stopPolling();
+            setBusy(true);
+            document.getElementById('reviewBanner').style.display = 'none';
             switchTab('rendered');
-            currentThreadId = threadId;
+
             document.getElementById('reportDisplay').innerHTML = `
                 <div class="loading-state">
                     <div class="spinner"></div>
                     <p>Fetching checkpoint state from checkpointer...</p>
                 </div>
             `;
+            document.getElementById('pipelineStatusLine').textContent = 'Loading checkpoint...';
+
+            const timeoutId = setTimeout(() => {
+                if (token === currentOpToken && activeAbortController) activeAbortController.abort();
+            }, 20000);
 
             try {
-                const response = await fetch(`/research/${encodeURIComponent(threadId)}`);
+                const response = await fetch(`/research/${encodeURIComponent(threadId)}`, { signal });
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
+
                 if (!response.ok) throw new Error(await errorMessage(response));
                 const data = await response.json();
+                if (token !== currentOpToken) return;
+
                 currentThreadId = threadId;
                 if (data.running) {
-                    setBusy(true);
-                    stopPolling();
                     showWorking(data.status);
-                    pollThread(threadId);
+                    pollThread(threadId, token);
                 } else {
+                    setBusy(false);
                     renderResponse(data);
                 }
             } catch (err) {
-                showError(err.message);
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
+                setBusy(false);
+                showError(err.name === 'AbortError' ? 'Checkpoint load timed out after 20s. Please retry.' : err.message);
             }
         }
 
         async function submitReview(approved, action = null) {
             if (!currentThreadId || isProcessing) return;
 
-            const feedback = document.getElementById('feedbackInput').value.trim();
+            const feedbackInput = document.getElementById('feedbackInput');
+            const feedback = feedbackInput.value.trim();
+            const reviewVersion = currentReviewVersion;
+
+            const { token, signal } = beginOperation();
             switchTab('rendered');
             setBusy(true);
             document.getElementById('reviewBanner').style.display = 'none';
             stopPolling();
             showWorking(approved ? 'approved' : 'revision_requested');
 
-            const payload = { approved: approved, feedback: feedback };
+            const payload = {
+                approved: approved,
+                feedback: feedback,
+                review_version: reviewVersion || ''
+            };
             if (action) {
                 payload.action = action;
             } else if (!approved) {
                 payload.action = 'revise';
             }
 
+            const timeoutId = setTimeout(() => {
+                if (token === currentOpToken && activeAbortController) activeAbortController.abort();
+            }, 20000);
+
             try {
                 const response = await fetch(`/research/${encodeURIComponent(currentThreadId)}/review`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    signal
                 });
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
+
                 if (!response.ok) throw new Error(await errorMessage(response));
-                pollThread(currentThreadId);
+                pollThread(currentThreadId, token);
             } catch (err) {
+                clearTimeout(timeoutId);
+                if (token !== currentOpToken) return;
                 setBusy(false);
-                showError(err.message);
+                document.getElementById('reviewBanner').style.display = 'block';
+                showError(err.name === 'AbortError' ? 'Review submission timed out. Verify state before retrying.' : err.message);
             }
         }
 
         function renderResponse(data) {
+            currentReviewVersion = data.review_version || (data.revision_count !== undefined ? `v${data.revision_count}` : '');
             const content = data.final_report || data.draft || 'No content available.';
             document.getElementById('reportHeadline').textContent =
                 data.topic || `report: ${data.thread_id.substring(0, 8)}... (${data.status})`;
@@ -1012,17 +1148,45 @@
             const auditCard = document.getElementById('citationAuditCard');
             if (data.citation_audit && data.citation_audit.total_citations !== undefined) {
                 auditCard.style.display = 'block';
-                const prec = Math.round((data.citation_audit.precision || 1.0) * 100);
-                document.getElementById('auditPrecision').textContent = `${prec}% Grounded`;
-                document.getElementById('auditTotal').textContent = data.citation_audit.total_citations;
+                const audit = data.citation_audit;
+                const verifier = audit.verifier || 'url_match';
+                const isSemantic = verifier === 'typesafe';
+
+                document.getElementById('auditCardTitle').textContent = isSemantic ? 'Semantic Citation Audit' : 'URL Citation Provenance';
+                document.getElementById('auditMethodNotice').textContent = isSemantic ? 'LLM Semantic Grounding Verifier' : 'URL Provenance Matcher';
+
+                const badgeEl = document.getElementById('auditPrecision');
                 const ungroundedEl = document.getElementById('auditUngrounded');
-                ungroundedEl.textContent = data.citation_audit.ungrounded_count || 0;
-                ungroundedEl.style.color = (data.citation_audit.ungrounded_count > 0) ? 'var(--warn)' : 'var(--ok)';
+                const ungroundedLabel = document.getElementById('auditUngroundedLabel');
+
+                ungroundedLabel.textContent = isSemantic ? 'Ungrounded' : 'Unmatched';
+                document.getElementById('auditTotal').textContent = audit.total_citations;
+                ungroundedEl.textContent = audit.ungrounded_count !== undefined ? audit.ungrounded_count : 0;
+
+                if (audit.precision !== null && audit.precision !== undefined) {
+                    const prec = Math.round(audit.precision * 100);
+                    badgeEl.textContent = `${prec}% ${isSemantic ? 'Grounded' : 'Matched'}`;
+                    if (prec === 100 && (!audit.ungrounded_count || audit.ungrounded_count === 0)) {
+                        badgeEl.style.background = 'var(--ok-soft)';
+                        badgeEl.style.color = 'var(--ok)';
+                        ungroundedEl.style.color = 'var(--ok)';
+                    } else {
+                        badgeEl.style.background = 'var(--warn-soft)';
+                        badgeEl.style.color = 'var(--warn)';
+                        ungroundedEl.style.color = 'var(--warn)';
+                    }
+                } else {
+                    badgeEl.textContent = 'Not Evaluated';
+                    badgeEl.style.background = 'var(--panel-sunken)';
+                    badgeEl.style.color = 'var(--text-dim)';
+                    ungroundedEl.style.color = 'var(--text-dim)';
+                }
             } else {
                 auditCard.style.display = 'none';
             }
 
             const sourcesContainer = document.getElementById('sourcesContainer');
+            let validSourceCount = 0;
             if (data.sources && data.sources.length > 0) {
                 sourcesContainer.replaceChildren();
                 for (const s of data.sources) {
@@ -1031,6 +1195,7 @@
                     try { u = new URL(s.url); } catch { continue; }
                     if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
 
+                    validSourceCount += 1;
                     const item = document.createElement('div');
                     item.className = 'source-item';
 
@@ -1048,21 +1213,45 @@
                     item.append(title, link);
                     sourcesContainer.append(item);
                 }
-            } else {
-                sourcesContainer.innerHTML = `<p style="font-size: 12px; color: var(--text-dim);">No citations extracted.</p>`;
+            }
+            if (validSourceCount === 0) {
+                sourcesContainer.innerHTML = `<p style="font-size: 12px; color: var(--text-dim);">No sources retrieved.</p>`;
             }
 
             const reviewBanner = document.getElementById('reviewBanner');
+            const capWarn = document.getElementById('revisionCapWarning');
             if (data.awaiting_review) {
                 reviewBanner.style.display = 'block';
-                document.getElementById('revisionBadge').textContent = `Revision ${data.revision_count} of 3`;
+                const revCount = data.revision_count || 0;
+                document.getElementById('revisionBadge').textContent = `Revision ${revCount} of 3`;
+                if (revCount >= 3) {
+                    if (capWarn) capWarn.style.display = 'block';
+                } else {
+                    if (capWarn) capWarn.style.display = 'none';
+                }
                 document.getElementById('feedbackInput').value = '';
             } else {
                 reviewBanner.style.display = 'none';
+                if (capWarn) capWarn.style.display = 'none';
             }
 
             updatePipelineUI(data.status, data.awaiting_review, data.revision_count, false);
-            document.getElementById('pipelineStatusLine').textContent = (data.status === 'finalized') ? 'Finalized & Audited' : (data.awaiting_review ? 'Suspended at Review' : data.status);
+
+            let statusText = 'Ready';
+            if (data.status === 'finalized') {
+                if (data.citation_audit && data.citation_audit.cap_warning) {
+                    statusText = 'Finalized (Max Revisions Reached)';
+                } else {
+                    statusText = 'Finalized (Approved)';
+                }
+            } else if (data.awaiting_review) {
+                statusText = `Suspended at Review (${currentReviewVersion || 'v' + (data.revision_count || 0)})`;
+            } else if (data.running) {
+                statusText = STAGE_COPY[data.status] || 'Processing research...';
+            } else {
+                statusText = data.status || 'Ready';
+            }
+            document.getElementById('pipelineStatusLine').textContent = statusText;
         }
 
         async function errorMessage(response) {

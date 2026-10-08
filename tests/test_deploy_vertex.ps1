@@ -40,7 +40,7 @@ function Invoke-RestMethod {
     if ($Method -eq 'Post') { $global:Finalized = $false; return @{ thread_id = 'test-thread' } }
     if ($global:Scenario -eq 'research_failure') { return @{ error = 'Simulated research failure' } }
     if ($global:Finalized) { return @{ status = 'finalized'; running = $false; final_report = 'Completed report' } }
-    return @{ status = 'drafted'; awaiting_review = $true; running = $false; draft = 'Draft'; sources = @(@{url = 'https://source.example'}) }
+    return @{ status = 'drafted'; awaiting_review = $true; running = $false; draft = 'Draft'; sources = @(@{url = 'https://source.example'}); review_version = 'v0' }
 }
 
 $envNames = @('MODEL_PROVIDER', 'GROQ_API_KEY', 'TAVILY_API_KEY', 'API_KEY', 'GCP_PROJECT_ID',
