@@ -44,12 +44,24 @@ function Get-Traffic {
 function Wait-Research {
     param([string]$BaseUrl, [string]$ThreadId, [string]$Expected, [Microsoft.PowerShell.Commands.WebRequestSession]$WebSession)
     $deadline = [DateTime]::UtcNow.AddMinutes(10)
+    $consecutiveErrors = 0
     do {
-        $state = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
-        if ($state.error) { throw "Research failed: $($state.error)" }
-        if ($Expected -eq 'review' -and $state.awaiting_review -and -not $state.running) { return $state }
-        if ($Expected -eq 'finalized' -and $state.status -eq 'finalized' -and -not $state.running) { return $state }
-        Write-Host "Research status: $($state.status), running: $($state.running)"
+        try {
+            $state = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Uri "$BaseUrl/research/$ThreadId" -TimeoutSec 90
+            $consecutiveErrors = 0
+            if ($state.error) { throw "Research failed: $($state.error)" }
+            if ($Expected -eq 'review' -and $state.awaiting_review -and -not $state.running) { return $state }
+            if ($Expected -eq 'finalized' -and $state.status -eq 'finalized' -and -not $state.running) { return $state }
+            Write-Host "Research status: $($state.status), running: $($state.running)"
+        } catch {
+            $err = $_
+            if ($err.ToString() -match "Research failed:") { throw $err }
+            $consecutiveErrors++
+            if ($consecutiveErrors -ge 6) {
+                throw $err
+            }
+            Write-Warning "Transient polling issue: $($err.Exception.Message). Retrying..."
+        }
         Start-Sleep -Seconds 5
     } while ([DateTime]::UtcNow -lt $deadline)
     throw "Research did not reach $Expected within ten minutes."
@@ -68,10 +80,13 @@ function Test-Lifecycle {
     $started = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research" -ContentType 'application/json' -TimeoutSec 60 `
         -Body (@{ topic = 'Recent progress in solid-state batteries: cite two sources and summarize briefly.' } | ConvertTo-Json)
     if (-not $started.thread_id) { throw 'No research thread was returned.' }
+    $review = Wait-Research -BaseUrl $BaseUrl -ThreadId $started.thread_id -Expected 'review' -WebSession $WebSession
+    if (-not $review.draft -or @($review.sources).Count -eq 0) { throw 'Draft or research sources are missing.' }
+    if (-not $review.review_version) { throw 'Server did not issue a review_version for the pending review.' }
     $reviewPayload = @{
         approved = $true
         action = 'approve'
-        review_version = if ($review.review_version) { $review.review_version } else { 'v0' }
+        review_version = $review.review_version
     } | ConvertTo-Json
     $null = Invoke-RestMethod -WebSession $WebSession -Headers $apiHeaders -Method Post -Uri "$BaseUrl/research/$($started.thread_id)/review" `
         -ContentType 'application/json' -Body $reviewPayload -TimeoutSec 90
