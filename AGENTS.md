@@ -110,8 +110,7 @@ local. Review timeout detection exists, but there is no automatic eviction job.
 Do not describe this deployment as shared durable state across Cloud Run
 instances.
 
-`README.md`, `CLAUDE.md`, `.agents/AGENTS.md`, `PLAN.md`, and
-`IMPLEMENTATION.md` contain useful context, but some descriptions predate the
-current implementation. In particular, `/` serves the Web Studio and review
-feedback can trigger new research. Verify behavior against current code and
-tests when updating documentation.
+`README.md`, `CLAUDE.md`, and `.agents/AGENTS.md` contain current context.
+In particular, `/` serves the Web Studio and review feedback can trigger new
+research. Verify behavior against current code and tests when updating
+documentation.

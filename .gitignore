@@ -16,4 +16,5 @@ htmlcov/
 .agents/skills/
 .claude/
 .context/
+.uv-cache/
 

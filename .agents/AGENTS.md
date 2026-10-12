@@ -9,7 +9,7 @@
 - **Human-In-The-Loop (HITL)**: Asynchronous review workflow using LangGraph `interrupt()`.
 - **State Checkpointing**: Persistent SQLite checkpointer (`SqliteSaver`) configured via `DB_PATH = checkpoints.sqlite` in `app/config.py`.
 - **API Models**: `ResearchResponse` surfaces `sub_queries` to inspect researcher search queries.
-- **Documentation**: Root endpoint (`GET /`) automatically redirects to Swagger UI docs (`/docs`).
+- **Documentation & UI**: Root endpoint (`GET /`) serves the Web Studio UI from `app/static/index.html` (falls back to Swagger `/docs`).
 
 ## Development & Test Commands
 - Start dev server: `uv run uvicorn app.main:app --reload`
